@@ -1,0 +1,46 @@
+{
+    "Map/SizeTest": {
+        "height": 4300,
+        "width": 2
+    },
+    "activeFile": "base.tmx",
+    "expandedProjectPaths": [
+    ],
+    "fileStates": {
+        "base.tmx": {
+            "scale": 5.5,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 106.81818181818181,
+                "y": 143.54545454545456
+            }
+        },
+        "env.tsx": {
+            "scaleInDock": 5.5,
+            "scaleInEditor": 8
+        }
+    },
+    "last.exportedFilePath": "E:/Projects/YogsJingleJam2025/assets/maps",
+    "last.imagePath": "E:/Projects/YogsJingleJam2025/assets/images",
+    "map.height": 40,
+    "map.lastUsedExportFilter": "CSV files (*.csv)",
+    "map.lastUsedFormat": "tmx",
+    "map.tileHeight": 8,
+    "map.tileWidth": 8,
+    "map.width": 60,
+    "openFiles": [
+        "env.tsx",
+        "base.tmx"
+    ],
+    "project": "yogs.tiled-project",
+    "property.type": "bool",
+    "recentFiles": [
+        "env.tsx",
+        "base.tmx"
+    ],
+    "tileset.lastUsedFormat": "tsx",
+    "tileset.tileSize": {
+        "height": 8,
+        "width": 8
+    }
+}

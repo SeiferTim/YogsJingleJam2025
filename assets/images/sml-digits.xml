@@ -1,0 +1,23 @@
+<font>
+	<info face="E:\Projects\YogsJingleJam2025\assets\images\raw-sml-digits-export" size="10" bold="0"  italic="0"/>
+	<common lineHeight="10" scaleW="22" scaleH="21" pages="1" />
+	<pages>
+		<page id="0" file="E:\Projects\YogsJingleJam2025\assets\images\raw-sml-digits-export.png" />
+	</pages>
+	<chars count="12">
+		<char id="48" x="6" y="7" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 0 -->
+		<char id="49" x="18" y="0" width="4" height="7" xoffset="0" yoffset="3" xadvance="5" /><!-- 1 -->
+		<char id="50" x="12" y="7" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 2 -->
+		<char id="51" x="12" y="0" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 3 -->
+		<char id="52" x="6" y="14" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 4 -->
+		<char id="53" x="12" y="14" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 5 -->
+		<char id="54" x="6" y="0" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 6 -->
+		<char id="55" x="0" y="14" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 7 -->
+		<char id="56" x="0" y="7" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 8 -->
+		<char id="57" x="0" y="0" width="6" height="7" xoffset="0" yoffset="3" xadvance="7" /><!-- 9 -->
+		<char id="32" x="0" y="0" width="0" height="0" xoffset="0" yoffset="0" xadvance="4" /><!--   -->
+		<char id="9" x="0" y="0" width="0" height="0" xoffset="0" yoffset="0" xadvance="64" /><!-- 	 -->
+	</chars>
+	<kernings count="0">
+	</kernings>
+</font>
