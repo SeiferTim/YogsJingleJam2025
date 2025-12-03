@@ -1,5 +1,6 @@
 package;
 
+import flixel.FlxBasic;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup;
@@ -16,11 +17,54 @@ class HUD extends FlxGroup
 	var bossHealthBar:BossHealthBar;
 
 	var player:Player;
-	var boss:Boss;
+	var boss:IBoss;
 
 	var padding:Int = 4;
 
-	public function new(Player:Player, Boss:Boss)
+	// Custom alpha management
+	var _alpha:Float = 1.0;
+
+	// Expose as a property so PlayState can assign `hud.alpha = value`.
+	public var alpha(get, set):Float;
+
+	public function setAlpha(value:Float):Void
+	{
+		_alpha = value;
+		// Apply alpha to all members
+		forEach(function(member:FlxBasic)
+		{
+			if (Std.isOfType(member, FlxSprite))
+			{
+				var sprite:FlxSprite = cast member;
+				sprite.alpha = value;
+			}
+			else if (Std.isOfType(member, FlxGroup))
+			{
+				var group:FlxGroup = cast member;
+				group.forEach(function(child:FlxBasic)
+				{
+					if (Std.isOfType(child, FlxSprite))
+					{
+						var sprite:FlxSprite = cast child;
+						sprite.alpha = value;
+					}
+				});
+			}
+		});
+	}
+
+	function get_alpha():Float
+	{
+		return _alpha;
+	}
+
+	function set_alpha(value:Float):Float
+	{
+		setAlpha(value);
+		return value;
+	}
+
+	public function new(Player:Player, Boss:IBoss)
 	{
 		super();
 		player = Player;

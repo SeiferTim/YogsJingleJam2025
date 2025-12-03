@@ -18,7 +18,7 @@ class BossHealthBar extends FlxGroup
 	var healthBar:FlxBar;
 	var damageText:FlxBitmapText;
 
-	var boss:Boss;
+	var boss:IBoss;
 	var previousHealth:Float;
 	var activeTween:FlxTween;
 	var damageTextTimer:Float = 0;
@@ -28,7 +28,7 @@ class BossHealthBar extends FlxGroup
 	var barY:Float;
 	var barWidth:Int;
 
-	public function new(Boss:Boss, X:Float, Y:Float, Width:Int, Height:Int)
+	public function new(Boss:IBoss, X:Float, Y:Float, Width:Int, Height:Int)
 	{
 		super();
 
