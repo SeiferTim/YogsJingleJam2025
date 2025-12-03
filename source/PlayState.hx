@@ -24,6 +24,8 @@ class PlayState extends FlxState
 	var boss:BossPhase01Larva;
 	var cameraTarget:FlxObject;
 
+	public var shadowLayer:ShadowLayer;
+
 	var introState:IntroState = FADE_IN;
 	var introTimer:Float = 0;
 	var fadeOverlay:FlxSprite;
@@ -40,6 +42,10 @@ class PlayState extends FlxState
 		add(map);
 
 		FlxG.worldBounds.set(8, 8, map.width - 16, map.height - 16);
+		// Shadow layer - renders above map but below entities
+		// Creates a bitmap layer at 0.7 alpha so overlapping shadows don't compound
+		shadowLayer = new ShadowLayer(Std.int(map.width), Std.int(map.height), 0.7);
+		add(shadowLayer);
 
 		// Create projectile groups (but don't add yet - add after player/boss for proper layering)
 		projectiles = new FlxTypedGroup<Projectile>();
@@ -55,6 +61,10 @@ class PlayState extends FlxState
 		player.active = false;
 		add(player);
 
+		// Create player shadow
+		player.shadow = new Shadow(player);
+		shadowLayer.add(player.shadow);
+
 		// Boss spawns at center of egg sprite
 		var bossSpawnX = eggSprite.x + eggSprite.width / 2;
 		var bossSpawnY = eggSprite.y + eggSprite.height / 2;
@@ -62,7 +72,12 @@ class PlayState extends FlxState
 		boss.visible = true; // Always visible, but starts at alpha 0
 		boss.active = false;
 		boss.currentHealth = 0;
-		add(boss); // Add projectiles AFTER player and boss so they render on top
+		add(boss);
+
+		// Create boss shadows for each segment
+		boss.createShadows(shadowLayer);
+
+		// Add projectiles AFTER player and boss so they render on top
 		add(projectiles);
 		add(bossProjectiles);
 		// Create camera target for smooth camera control
@@ -229,7 +244,7 @@ class PlayState extends FlxState
 
 			case BOSS_DESCEND:
 				var targetX = map.width / 2;
-				var targetY = map.height - 80;
+				var targetY = map.height - 64; // Changed from 80 to 64 (16px lower)
 
 				boss.moveTo(targetX, targetY, 40, elapsed);
 

@@ -70,12 +70,15 @@ class HUD extends FlxGroup
 		player = Player;
 		boss = Boss;
 
-		// Hearts (with 0 spacing between them)
+		// Hearts (with 0 spacing between them) - heart.png has 2 frames: 0=filled, 1=empty
 		hearts = [];
 		for (i in 0...player.maxHP)
 		{
 			var heart = new FlxSprite(padding + i * 8, padding);
-			heart.loadGraphic("assets/images/heart.png");
+			heart.loadGraphic("assets/images/heart.png", true, 8, 8);
+			heart.animation.add("full", [0]);
+			heart.animation.add("empty", [1]);
+			heart.animation.play("full");
 			heart.scrollFactor.set(0, 0);
 			add(heart);
 			hearts.push(heart);
@@ -114,7 +117,8 @@ class HUD extends FlxGroup
 	{
 		for (i in 0...hearts.length)
 		{
-			hearts[i].visible = i < player.currentHP;
+			// Show full heart if we have HP, empty heart if we don't
+			hearts[i].animation.play(i < player.currentHP ? "full" : "empty");
 		}
 	}
 

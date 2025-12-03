@@ -40,6 +40,8 @@ class Player extends FlxSprite
 	var projectiles:FlxTypedGroup<Projectile>;
 	var wasShootPressed:Bool = false;
 
+	public var shadow:Shadow;
+
 	public function new(X:Float, Y:Float, Projectiles:FlxTypedGroup<Projectile>)
 	{
 		super(X, Y);

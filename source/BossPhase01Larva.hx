@@ -49,6 +49,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	var mouthOpen:Bool = false;
 	var pincersOpen:Bool = false;
 	var pincerWiggleTimer:Float = 0;
+	var hasRoared:Bool = false;
+
+	public var shadows:Array<Shadow>;
 
 	public function new(X:Float, Y:Float, ?AttackCallback:Void->Void, ?SpitProjectiles:FlxTypedGroup<Projectile>)
 	{
@@ -85,16 +88,16 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 
 		mouth = new FlxSprite();
 		mouth.loadGraphic(AssetPaths.boss_phase_01_larva_mouth__png, true, 6, 9);
-		mouth.animation.add("closed", [0]);
-		mouth.animation.add("open", [1]);
+		mouth.animation.add("closed", [1]);
+		mouth.animation.add("open", [0]);
 		mouth.animation.play("closed");
 		mouth.alpha = 0;
 		add(mouth);
 
 		pincers = new FlxSprite();
 		pincers.loadGraphic(AssetPaths.boss_phase_01_larva_pincers__png, true, 26, 13);
-		pincers.animation.add("closed", [0]);
-		pincers.animation.add("open", [1]);
+		pincers.animation.add("closed", [1]);
+		pincers.animation.add("open", [0]);
 		pincers.animation.play("closed");
 		pincers.alpha = 0;
 		add(pincers);
@@ -111,6 +114,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		foreSegment.setCenter(headX, headY);
 		headSegment.setCenter(headX, headY);
 
+		// Initialize shadows array (will be populated from PlayState)
+		shadows = [];
+
 		updateMouthAndPincers();
 		currentHealth = maxHealth;
 	}
@@ -118,9 +124,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	function updateSegments():Void
 	{
 		headSegment.setCenter(headX, headY);
-		foreSegment.setCenter(headX, headY - 25);
-		backSegment.setCenter(headX, headY - 45);
-		lastSegment.setCenter(headX, headY - 60);
+		foreSegment.setCenter(headX, headY - 20); // Reduced from 25 to 20
+		backSegment.setCenter(headX, headY - 38); // Reduced from 45 to 38
+		lastSegment.setCenter(headX, headY - 53); // Reduced from 60 to 53
 
 		applyWiggle();
 	}
@@ -139,13 +145,15 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 
 	function updateMouthAndPincers():Void
 	{
-		var headCenter = headSegment.getCenter();
 		// Position at bottom of head - mouth is 6x9, pincers are 22x13
-		mouth.x = headCenter.x - mouth.width / 2;
-		mouth.y = headCenter.y + (headSegment.sprite.height / 2) - mouth.height;
-		pincers.x = headCenter.x - pincers.width / 2;
-		pincers.y = mouth.y + 1; // Pincers just below mouth
-		headCenter.put();
+		// Just copy the head's offset so they move together!
+		var headSpr = headSegment.sprite;
+		mouth.x = headSpr.x + headSpr.width / 2 - mouth.width / 2;
+		mouth.y = headSpr.y + headSpr.height - mouth.height;
+		mouth.offset.y = headSpr.offset.y;
+		pincers.x = headSpr.x + headSpr.width / 2 - pincers.width / 2;
+		pincers.y = mouth.y + 1;
+		pincers.offset.y = headSpr.offset.y;
 	}
 
 	function setMouthOpen(open:Bool):Void
@@ -177,17 +185,22 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public function unfurl(progress:Float):Void
 	{
 		squishFactor = progress;
-		headY = baseY + (progress * 30);
+		// Last segment stays at original spawn position (baseY)
+		// All other segments move DOWN from there
+		var lastY = baseY;
+
+		headY = lastY + (53 * progress); // Head moves down 53px total
+
+		// Move segments - lastSegment stays put, others move progressively down
+		lastSegment.setCenter(headX, lastY);
+		backSegment.setCenter(headX, lastY + (15 * progress)); // 15px down from last
+		foreSegment.setCenter(headX, lastY + (33 * progress)); // 33px down from last (15+18)
+		headSegment.setCenter(headX, lastY + (53 * progress)); // 53px down from last (15+18+20)
+		
 		if (progress >= 1.0)
 		{
 			baseY = headY;
 		}
-
-		// Move segments to their final positions as we unfurl
-		headSegment.setCenter(headX, headY);
-		foreSegment.setCenter(headX, headY - (25 * progress));
-		backSegment.setCenter(headX, headY - (45 * progress));
-		lastSegment.setCenter(headX, headY - (60 * progress));
 
 		updateMouthAndPincers();
 	}
@@ -222,6 +235,25 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		var dy = y - headY;
 		return (dx * dx + dy * dy) < 100;
 	}
+	public function createShadows(shadowLayer:ShadowLayer):Void
+	{
+		// Create a shadow for each segment sprite
+		var lastShadow = new Shadow(lastSegment.sprite);
+		shadowLayer.add(lastShadow);
+		shadows.push(lastShadow);
+
+		var backShadow = new Shadow(backSegment.sprite);
+		shadowLayer.add(backShadow);
+		shadows.push(backShadow);
+
+		var foreShadow = new Shadow(foreSegment.sprite);
+		shadowLayer.add(foreShadow);
+		shadows.push(foreShadow);
+
+		var headShadow = new Shadow(headSegment.sprite);
+		shadowLayer.add(headShadow);
+		shadows.push(headShadow);
+	}
 
 	public function setReady():Void
 	{
@@ -235,6 +267,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	{
 		setMouthOpen(true);
 		setPincersOpen(true);
+		hasRoared = true;
 	}
 
 	public function closeRoar():Void
@@ -258,28 +291,37 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		{
 			case IDLE:
 				updateIdle(elapsed);
+				updateSegments();
+				updateMouthAndPincers();
 			case SLAM_ATTACK:
 				updateSlamAttack(elapsed);
 			case SPIT_ATTACK:
 				updateSpitAttack(elapsed);
+				updateSegments();
+				updateMouthAndPincers();
 		}
-
-		updateSegments();
-		updateMouthAndPincers();
 	}
 
 	function updateIdle(elapsed:Float):Void
 	{
 		wiggleTime += elapsed * 3;
-		pincerWiggleTimer += elapsed;
-
-		if (pincerWiggleTimer > FlxG.random.float(0.5, 2.0))
-		{
-			setPincersOpen(!pincersOpen);
-			pincerWiggleTimer = 0;
-		}
-
+		// Mouth stays closed in idle
 		setMouthOpen(false);
+
+		// Pincers only wiggle after the initial roar
+		if (hasRoared)
+		{
+			pincerWiggleTimer += elapsed;
+			if (pincerWiggleTimer > FlxG.random.float(2.0, 4.0)) // Less frequent
+			{
+				setPincersOpen(!pincersOpen);
+				pincerWiggleTimer = 0;
+			}
+		}
+		else
+		{
+			setPincersOpen(false);
+		}
 
 		var dx = targetX - headX;
 		var dy = targetY - headY;
@@ -312,70 +354,86 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 
 	function updateSlamAttack(elapsed:Float):Void
 	{
+		// Position segments at base location with NEW spacing
+		headSegment.setCenter(headX, headY);
+		foreSegment.setCenter(headX, headY - 20);
+		backSegment.setCenter(headX, headY - 38);
+		lastSegment.setCenter(headX, headY - 53);
+
+		// Clear wiggle
+		foreSegment.sprite.offset.y = 0;
+		backSegment.sprite.offset.y = 0;
+		lastSegment.sprite.offset.y = 0;
+		
 		if (modeTimer < 1.2)
 		{
-			// Raise up before slam - head and foreSegment stand up
+			// Raise up - segments rise in sequence to form S-shape
+			// Each segment's center should align with the top of the segment below it
 			setMouthOpen(true);
 			setPincersOpen(true);
 
 			var raiseProgress = modeTimer / 1.2;
 
-			// Position segments normally first
-			headSegment.setCenter(headX, headY);
-			foreSegment.setCenter(headX, headY - 25);
-			backSegment.setCenter(headX, headY - 45);
-			lastSegment.setCenter(headX, headY - 60);
-
-			// Clear any wiggle offsets
-			foreSegment.sprite.offset.y = 0;
-			backSegment.sprite.offset.y = 0;
-			lastSegment.sprite.offset.y = 0;
-
-			// Use offsets to stand up: bottom of head at center of foreSegment,
-			// bottom of foreSegment at center of backSegment
-			var headRaise = (headSegment.sprite.height / 2 + foreSegment.sprite.height / 2) * raiseProgress;
-			var foreRaise = (foreSegment.sprite.height / 2 + backSegment.sprite.height / 2) * raiseProgress;
-
-			headSegment.sprite.offset.y = -headRaise;
-			foreSegment.sprite.offset.y += -foreRaise; // Add to existing offset
+			// Calculate target offsets for S-shape - MULTIPLY by 2 for more dramatic raise
+			// lastSegment stays at y=0 (on ground)
+			// backSegment center should be at lastSegment's top
+			var backTarget = lastSegment.sprite.height / 2 * 2; // center of back at top of last
+			// foreSegment center should be at backSegment's top
+			var foreTarget = backTarget + backSegment.sprite.height / 2 * 2;
+			// headSegment center should be at foreSegment's top
+			var headTarget = foreTarget + foreSegment.sprite.height / 2 * 2;
+			
+			// Apply progressive animation
+			headSegment.sprite.offset.y = headTarget * raiseProgress;
+			
+			// Fore starts rising when head has risen enough
+			var foreThreshold = 0.33;
+			if (raiseProgress > foreThreshold)
+			{
+				var foreProgress = (raiseProgress - foreThreshold) / (1 - foreThreshold);
+				foreSegment.sprite.offset.y = foreTarget * foreProgress;
+			}
+			
+			// Back starts rising after fore
+			var backThreshold = 0.66;
+			if (raiseProgress > backThreshold)
+			{
+				var backProgress = (raiseProgress - backThreshold) / (1 - backThreshold);
+				backSegment.sprite.offset.y = backTarget * backProgress;
+			}
 
 			updateMouthAndPincers();
 		}
 		else if (modeTimer < 1.3)
 		{
-			// Slam down
+			// Slam down fast - all together
 			setMouthOpen(true);
 			setPincersOpen(true);
 
 			var slamProgress = (modeTimer - 1.2) / 0.1;
 
-			headSegment.setCenter(headX, headY);
-			foreSegment.setCenter(headX, headY - 25);
-			backSegment.setCenter(headX, headY - 45);
-			lastSegment.setCenter(headX, headY - 60);
-
-			foreSegment.sprite.offset.y = 0;
-			backSegment.sprite.offset.y = 0;
-			lastSegment.sprite.offset.y = 0;
-
-			var headRaise = (headSegment.sprite.height / 2 + foreSegment.sprite.height / 2) * (1 - slamProgress);
-			var foreRaise = (foreSegment.sprite.height / 2 + backSegment.sprite.height / 2) * (1 - slamProgress);
-
-			headSegment.sprite.offset.y = -headRaise;
-			foreSegment.sprite.offset.y += -foreRaise;
+			// Calculate same targets with 2x multiplier
+			var backTarget = lastSegment.sprite.height / 2 * 2;
+			var foreTarget = backTarget + backSegment.sprite.height / 2 * 2;
+			var headTarget = foreTarget + foreSegment.sprite.height / 2 * 2;
+			
+			headSegment.sprite.offset.y = headTarget * (1 - slamProgress);
+			foreSegment.sprite.offset.y = foreTarget * (1 - slamProgress);
+			backSegment.sprite.offset.y = backTarget * (1 - slamProgress);
 
 			updateMouthAndPincers();
 		}
 		else if (modeTimer < 1.35)
 		{
-			// Impact - reset offsets
+			// Impact
 			setMouthOpen(true);
 			setPincersOpen(true);
 
 			headSegment.sprite.offset.y = 0;
 			foreSegment.sprite.offset.y = 0;
+			backSegment.sprite.offset.y = 0;
+			lastSegment.sprite.offset.y = 0;
 
-			updateSegments();
 			updateMouthAndPincers();
 
 			if (attackCallback != null)
@@ -386,11 +444,14 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		}
 		else if (modeTimer > 1.9)
 		{
+			// Done
 			setMouthOpen(false);
 			setPincersOpen(false);
 
 			headSegment.sprite.offset.y = 0;
 			foreSegment.sprite.offset.y = 0;
+			backSegment.sprite.offset.y = 0;
+			lastSegment.sprite.offset.y = 0;
 
 			mode = IDLE;
 			modeTimer = 0;
@@ -404,8 +465,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 
 			headSegment.sprite.offset.y = 0;
 			foreSegment.sprite.offset.y = 0;
+			backSegment.sprite.offset.y = 0;
+			lastSegment.sprite.offset.y = 0;
 
-			updateSegments();
 			updateMouthAndPincers();
 		}
 	}
@@ -453,7 +515,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		var spawnY = mouth.y + mouth.origin.y + mouth.height / 2;
 		proj.reset(spawnX, spawnY);
 		proj.damage = contactDamage;
-		proj.makeGraphic(4, 4, FlxColor.GREEN);
+		proj.loadGraphic("assets/images/spit.png");
 
 		var targetX:Float = spawnX + 1;
 		var targetY:Float = spawnY;
@@ -505,7 +567,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 			}
 			proj.reset(center.x, center.y);
 			proj.damage = contactDamage * 0.5;
-			proj.makeGraphic(4, 4, FlxColor.ORANGE);
+			proj.loadGraphic("assets/images/shockwave.png");
 			proj.velocity.x = Math.cos(angle) * shockwaveSpeed;
 			proj.velocity.y = Math.sin(angle) * shockwaveSpeed;
 			proj.acceleration.set(0, 0);
