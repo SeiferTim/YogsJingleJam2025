@@ -7,6 +7,7 @@ import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxMath;
 import flixel.math.FlxPoint;
 import flixel.util.FlxColor;
+import flixel.util.FlxSpriteUtil;
 
 class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 {
@@ -16,7 +17,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public var width:Float = 40;
 	public var height:Float = 40;
 
-	var headSegment:BossSegment;
+	public var headSegment:BossSegment;
 	var foreSegment:BossSegment;
 	var backSegment:BossSegment;
 	var lastSegment:BossSegment;
@@ -32,8 +33,8 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public var x(get, never):Float;
 	public var y(get, never):Float;
 
-	var headX:Float;
-	var headY:Float;
+	public var headX:Float;
+	public var headY:Float;
 	var baseX:Float;
 	var baseY:Float;
 	var targetX:Float;
@@ -124,9 +125,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	function updateSegments():Void
 	{
 		headSegment.setCenter(headX, headY);
-		foreSegment.setCenter(headX, headY - 20); // Reduced from 25 to 20
-		backSegment.setCenter(headX, headY - 38); // Reduced from 45 to 38
-		lastSegment.setCenter(headX, headY - 53); // Reduced from 60 to 53
+		foreSegment.setCenter(headX, headY - 20);
+		backSegment.setCenter(headX, headY - 38);
+		lastSegment.setCenter(headX, headY - 53);
 
 		applyWiggle();
 	}
@@ -237,22 +238,25 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	}
 	public function createShadows(shadowLayer:ShadowLayer):Void
 	{
-		// Create a shadow for each segment sprite
-		var lastShadow = new Shadow(lastSegment.sprite);
+		// Create shadows for each segment
+		// Width: 1.2x, Height: 1.0x, Anchor: center.x, center.y + 4
+
+		var lastShadow = new Shadow(lastSegment.sprite, 1.2, 1.0, 0, 4);
 		shadowLayer.add(lastShadow);
 		shadows.push(lastShadow);
 
-		var backShadow = new Shadow(backSegment.sprite);
+		var backShadow = new Shadow(backSegment.sprite, 1.2, 1.0, 0, 4);
 		shadowLayer.add(backShadow);
 		shadows.push(backShadow);
 
-		var foreShadow = new Shadow(foreSegment.sprite);
+		var foreShadow = new Shadow(foreSegment.sprite, 1.2, 1.0, 0, 4);
 		shadowLayer.add(foreShadow);
 		shadows.push(foreShadow);
 
-		var headShadow = new Shadow(headSegment.sprite);
+		var headShadow = new Shadow(headSegment.sprite, 1.2, 1.0, 0, 4);
 		shadowLayer.add(headShadow);
 		shadows.push(headShadow);
+		// No shadows for mouth or pincers
 	}
 
 	public function setReady():Void

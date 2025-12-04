@@ -7,4 +7,5 @@ interface IBoss
 	
 	public function takeDamage(damage:Float):Void;
 	public function die():Void;
+	public function moveTo(x:Float, y:Float, speed:Float, elapsed:Float):Void;
 }

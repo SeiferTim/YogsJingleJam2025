@@ -138,4 +138,9 @@ class HUD extends FlxGroup
 		var cooldownPercent = player.dodgeTimer / player.dodgeCooldown;
 		dodgeCooldownIcon.updateCooldown(cooldownPercent);
 	}
+	public function setBossHealthVisible(visible:Bool):Void
+	{
+		if (bossHealthBar != null)
+			bossHealthBar.visible = visible;
+	}
 }

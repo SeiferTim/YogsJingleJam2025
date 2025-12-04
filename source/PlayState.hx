@@ -21,7 +21,11 @@ class PlayState extends FlxState
 	var projectiles:FlxTypedGroup<Projectile>;
 	var bossProjectiles:FlxTypedGroup<Projectile>;
 	var hud:HUD;
+	// Boss phases
 	var boss:BossPhase01Larva;
+	var boss2:BossPhase02;
+	var currentBossPhase:Int = 1;
+	
 	var cameraTarget:FlxObject;
 
 	public var shadowLayer:ShadowLayer;
@@ -30,7 +34,11 @@ class PlayState extends FlxState
 	var introTimer:Float = 0;
 	var fadeOverlay:FlxSprite;
 	var eggSprite:FlxSprite;
+	var cocoonSprite:FlxSprite;
 	var playerActive:Bool = false;
+	// Phase transition
+	var gameState:GameState = INTRO;
+	var transitionTimer:Float = 0;
 
 	override public function create()
 	{
@@ -56,13 +64,20 @@ class PlayState extends FlxState
 		eggSprite.animation.frameIndex = 0;
 		eggSprite.visible = false;
 		add(eggSprite);
+		// Cocoon sprite (for phase transitions)
+		cocoonSprite = new FlxSprite(0, 0);
+		cocoonSprite.loadGraphic("assets/images/boss-phase-01-cocoon.png");
+		cocoonSprite.visible = false;
+		cocoonSprite.alpha = 0;
+		add(cocoonSprite);
 
 		player = new Player((map.width / 2) - 4, map.height - 32, projectiles);
 		player.active = false;
 		add(player);
 
 		// Create player shadow
-		player.shadow = new Shadow(player);
+		// Width: 1.2x, Height: 0.25x, Anchor: center.x, y + height
+		player.shadow = new Shadow(player, 1.2, 0.25, 0, player.height / 2);
 		shadowLayer.add(player.shadow);
 
 		// Boss spawns at center of egg sprite
@@ -102,15 +117,45 @@ class PlayState extends FlxState
 
 	override public function update(elapsed:Float)
 	{
-		if (!playerActive)
+		// DEBUG: Press T to test phase transition
+		if (FlxG.keys.justPressed.T && gameState == PHASE_1_ACTIVE)
+		{
+			trace("DEBUG: Force Phase 1 death");
+			boss.currentHealth = 0;
+		}
+
+		if (gameState == INTRO)
 		{
 			updateIntroSequence(elapsed);
 		}
-		else
+		else if (gameState == PHASE_1_ACTIVE)
 		{
+			// Check if boss Phase 1 is defeated
+			if (boss != null && boss.currentHealth <= 0 && boss.alive)
+			{
+				startPhase1DeathSequence();
+			}
+			
 			checkProjectileCollisions();
 			checkBossCollisions();
 		}
+		else if (gameState == PHASE_1_DEATH)
+		{
+			updatePhase1DeathSequence(elapsed);
+		}
+		else if (gameState == PHASE_1_5_ACTIVE)
+		{
+			updatePhase1_5(elapsed);
+			checkProjectileCollisions();
+			// No boss collisions during cocoon phase
+		}
+		else if (gameState == PHASE_2_ACTIVE)
+		{
+			// TODO: Check Phase 2 boss defeat
+			checkProjectileCollisions();
+			checkPhase2Collisions();
+		}
+		
 		super.update(elapsed);
 	}
 	function startIntroSequence():Void
@@ -352,6 +397,9 @@ class PlayState extends FlxState
 		boss.active = true;
 		boss.setReady();
 		FlxG.camera.follow(player, LOCKON);
+		// Set game state to Phase 1 active
+		gameState = PHASE_1_ACTIVE;
+		trace("Phase 1 battle started!");
 	}
 
 	function checkProjectileCollisions():Void
@@ -425,7 +473,224 @@ class PlayState extends FlxState
 		}
 		proj.kill();
 	}
+	// ===== PHASE TRANSITION SYSTEM =====
+
+	function startPhase1DeathSequence():Void
+	{
+		trace("Phase 1 boss defeated! Starting death sequence...");
+		gameState = PHASE_1_DEATH;
+		transitionTimer = 0;
+
+		// Stop player and boss
+		player.active = false;
+		player.velocity.set(0, 0);
+		boss.active = false;
+
+		// Pan camera to boss head (smooth transition)
+		FlxTween.tween(FlxG.camera.scroll, {
+			x: boss.headSegment.sprite.x - FlxG.width / 2 + boss.headSegment.sprite.width / 2,
+			y: boss.headSegment.sprite.y - FlxG.height / 2 + boss.headSegment.sprite.height / 2
+		}, 1.0, {ease: FlxEase.quadInOut});
+	}
+
+	function updatePhase1DeathSequence(elapsed:Float):Void
+	{
+		transitionTimer += elapsed;
+
+		// Sequence: pan(1s) → roar(1.5s) → crawl up(2.5s) → fade cocoon(1.5s) → wait(0.5s)
+
+		var targetX = map.width / 2;
+		var targetY = 60; // Near top of screen
+
+		if (transitionTimer > 1.0 && transitionTimer < 2.5)
+		{
+			// Roar animation (trigger once at 1 second mark)
+			if (transitionTimer - elapsed <= 1.0)
+			{
+				trace("Boss roaring...");
+				boss.roar(); // Opens mouth and pincers
+
+				// Screen shake
+				FlxG.camera.shake(0.01, 1.0);
+			}
+		}
+		else if (transitionTimer > 2.5 && transitionTimer < 5.0)
+		{
+			// Smoothly crawl upward to center top using boss's moveTo
+			boss.moveTo(targetX, targetY, 40, elapsed);
+		}
+		else if (transitionTimer > 5.0 && transitionTimer < 6.5)
+		{
+			// Make sure boss is at final position before spawning cocoon
+			boss.headX = targetX;
+			boss.headY = targetY;
+
+			// Fade in cocoon over boss and hide health bar
+			if (cocoonSprite.alpha == 0)
+			{
+				trace("Spawning cocoon...");
+				cocoonSprite.x = boss.headX - cocoonSprite.width / 2;
+				cocoonSprite.y = boss.headY - cocoonSprite.height / 2;
+				cocoonSprite.visible = true;
+
+				// Create shadow for cocoon using alpha channel
+				// Width: 1.2x, Height: 1.0x, Anchor: center.x, center.y + 4
+				var cocoonShadow = new Shadow(cocoonSprite, 1.2, 1.0, 0, 4, true);
+				shadowLayer.add(cocoonShadow);
+
+				// Hide health bar
+				hud.setBossHealthVisible(false);
+			}
+			var fadeProgress = (transitionTimer - 5.0) / 1.5;
+			cocoonSprite.alpha = fadeProgress;
+
+			// Fade out boss segments
+			var bossAlpha = 1.0 - fadeProgress;
+			boss.forEach(function(spr:FlxSprite)
+			{
+				if (spr != null)
+					spr.alpha = bossAlpha;
+			});
+
+			// Fade out shadows too and kill them when fully transparent
+			for (shadow in boss.shadows)
+			{
+				if (shadow != null && shadow.exists)
+				{
+					shadow.alpha = bossAlpha;
+					if (bossAlpha <= 0)
+						shadow.kill();
+				}
+			}
+		}
+		else if (transitionTimer > 7.0)
+		{
+			// Hide boss, start Phase 1.5
+			boss.visible = false;
+			boss.die();
+
+			startPhase1_5();
+		}
+	}
+
+	function startPhase1_5():Void
+	{
+		trace("Starting Phase 1.5 - Cocoon intermission");
+		gameState = PHASE_1_5_ACTIVE;
+		transitionTimer = 0;
+
+		// Pan camera back to player
+		FlxTween.tween(FlxG.camera.scroll, {
+			x: player.x - FlxG.width / 2 + player.width / 2,
+			y: player.y - FlxG.height / 2 + player.height / 2
+		}, 1.0, {
+			ease: FlxEase.quadInOut,
+			onComplete: function(t:FlxTween)
+			{
+				// Reactivate player
+				player.active = true;
+				FlxG.camera.follow(player, LOCKON, 1);
+			}
+		});
+
+		// TODO: Spawn Phase 2 ghosts here (if any saved)
+		// For now, just wait 30 seconds
+	}
+
+	function updatePhase1_5(elapsed:Float):Void
+	{
+		transitionTimer += elapsed;
+
+		// TODO: Check if all ghosts defeated
+		// For now, just wait 30 seconds
+
+		if (transitionTimer > 30.0)
+		{
+			startPhase2HatchSequence();
+		}
+	}
+
+	function startPhase2HatchSequence():Void
+	{
+		trace("Boss hatching into Phase 2!");
+		gameState = PHASE_2_HATCH;
+		transitionTimer = 0;
+
+		// Stop player
+		player.active = false;
+		player.velocity.set(0, 0);
+
+		// Pan to cocoon
+		FlxTween.tween(FlxG.camera.scroll, {
+			x: cocoonSprite.x + cocoonSprite.width / 2 - FlxG.width / 2,
+			y: cocoonSprite.y + cocoonSprite.height / 2 - FlxG.height / 2
+		}, 1.0, {
+			ease: FlxEase.quadInOut,
+			onComplete: function(t:FlxTween)
+			{
+				// Fade out cocoon
+				FlxTween.tween(cocoonSprite, {alpha: 0}, 1.0, {
+					onComplete: function(t:FlxTween)
+					{
+						cocoonSprite.visible = false;
+						spawnPhase2Boss();
+					}
+				});
+			}
+		});
+	}
+
+	function spawnPhase2Boss():Void
+	{
+		trace("Spawning Phase 2 boss!");
+
+		// Create Phase 2 boss at cocoon position
+		boss2 = new BossPhase02(cocoonSprite.x, cocoonSprite.y);
+		boss2.alpha = 0;
+		add(boss2);
+
+		// Create shadows
+		boss2.createShadows(shadowLayer);
+
+		// Fade in
+		FlxTween.tween(boss2, {alpha: 1}, 1.5, {
+			onComplete: function(t:FlxTween)
+			{
+				// Activate Phase 2
+				boss2.activate();
+				gameState = PHASE_2_ACTIVE;
+
+				// Reactivate player and camera
+				player.active = true;
+				FlxG.camera.follow(player, LOCKON, 1);
+
+				trace("Phase 2 active!");
+			}
+		});
+	}
+
+	function checkPhase2Collisions():Void
+	{
+		// TODO: Implement Phase 2 collision detection
+		// For now, just basic overlap with all parts
+		if (boss2 != null && boss2.exists)
+		{
+			// TODO: Add proper collision for each body part
+		}
+	}
 }
+
+enum GameState
+{
+	INTRO;
+	PHASE_1_ACTIVE;
+	PHASE_1_DEATH;
+	PHASE_1_5_ACTIVE;
+	PHASE_2_HATCH;
+	PHASE_2_ACTIVE;
+	// TODO: Add more phases
+}
+
 enum IntroState
 {
 	FADE_IN;
