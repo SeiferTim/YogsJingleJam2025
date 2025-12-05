@@ -46,6 +46,8 @@ class Arrow extends Weapon
 		arrow.setup(player.facingAngle * FlxAngle.TO_DEG, powerMultiplier);
 		arrow.reset(player.x + player.width / 2 - arrow.width / 2, player.y + player.height / 2 - arrow.height / 2);
 		arrow.damage = baseDamage * player.attackDamage * powerMultiplier;
+		arrow.sticksToWalls = true;
+		arrow.sticksToEnemies = false; // Arrows don't stick to enemies anymore
 
 		var speed = baseSpeed * powerMultiplier;
 		arrow.velocity.x = Math.cos(player.facingAngle) * speed;

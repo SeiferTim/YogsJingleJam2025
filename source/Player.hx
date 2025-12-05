@@ -6,6 +6,8 @@ import flixel.group.FlxGroup;
 import flixel.math.FlxAngle;
 import flixel.math.FlxPoint;
 import flixel.math.FlxVelocity;
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
 
 class Player extends FlxSprite
@@ -24,6 +26,9 @@ class Player extends FlxSprite
 	var dodgeDuration:Float = 0.2;
 	var dodgeDistance:Float = 32;
 	var isDodging:Bool = false;
+	// Dodge animation tweens
+	var dodgeJumpTween:FlxTween;
+	var dodgeRotateTween:FlxTween;
 
 	public var isInvincible:Bool = false;
 
@@ -50,16 +55,33 @@ class Player extends FlxSprite
 
 		loadGraphic("assets/images/players.png", true, 8, 8);
 		animation.frameIndex = 0;
+		antialiasing = false;
 
 		centerOrigin();
 
 		solid = true;
 
-		weapon = new Arrow(this, projectiles);
+		weapon = new Arrow(this, projectiles); // Default weapon
 
 		reticle = new FlxSprite();
 		reticle.makeGraphic(3, 3, FlxColor.WHITE);
 		reticle.offset.set(1, 1);
+	}
+
+	public function setWeapon(weaponType:CharacterData.WeaponType):Void
+	{
+		// Set weapon based on type
+		switch (weaponType)
+		{
+			case BOW:
+				weapon = new Arrow(this, projectiles);
+			case SWORD:
+				weapon = new Sword(this, projectiles);
+			case WAND:
+				weapon = new Wand(this, projectiles);
+			case HALBERD:
+				weapon = new Halberd(this, projectiles);
+		}
 	}
 
 	override function update(elapsed:Float):Void
@@ -187,6 +209,40 @@ class Player extends FlxSprite
 		var speed = dodgeDistance / dodgeDuration;
 		velocity.x = Math.cos(facingAngle) * speed;
 		velocity.y = Math.sin(facingAngle) * speed;
+		// Dodge roll animation: jump up and rotate
+		// Determine rotation direction based on facing angle
+		// Right (0 to 90, -90 to 0): positive rotation
+		// Left (90 to 180, -180 to -90): negative rotation
+		var rotationAmount:Float = 360;
+
+		// Normalize facing angle to -180 to 180
+		var normalizedAngle = facingAngle * (180 / Math.PI);
+		while (normalizedAngle > 180)
+			normalizedAngle -= 360;
+		while (normalizedAngle < -180)
+			normalizedAngle += 360;
+
+		// If facing left (-180 to 0), rotate counter-clockwise (negative)
+		if (normalizedAngle < 0)
+		{
+			rotationAmount = -360;
+		}
+
+		// Tween offset.y up 2-3px (makes sprite appear to jump)
+		var jumpHeight = -2.5; // Negative because y increases downward
+		dodgeJumpTween = FlxTween.tween(offset, {y: jumpHeight}, dodgeDuration / 2, {
+			ease: FlxEase.quadOut,
+			onComplete: function(t:FlxTween)
+			{
+				// Come back down
+				FlxTween.tween(offset, {y: 0}, dodgeDuration / 2, {ease: FlxEase.quadIn});
+			}
+		});
+
+		// Rotate sprite full revolution
+		dodgeRotateTween = FlxTween.tween(this, {angle: angle + rotationAmount}, dodgeDuration, {
+			ease: FlxEase.linear
+		});
 	}
 
 	function updateDodge(elapsed:Float):Void
@@ -198,6 +254,21 @@ class Player extends FlxSprite
 			isInvincible = false;
 			dodgeDuration = 0.2;
 			velocity.set(0, 0);
+			// Reset visual state
+			offset.y = 0;
+			angle = 0;
+
+			// Cancel any remaining tweens
+			if (dodgeJumpTween != null)
+			{
+				dodgeJumpTween.cancel();
+				dodgeJumpTween = null;
+			}
+			if (dodgeRotateTween != null)
+			{
+				dodgeRotateTween.cancel();
+				dodgeRotateTween = null;
+			}
 		}
 	}
 

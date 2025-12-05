@@ -14,7 +14,7 @@ class HUD extends FlxGroup
 	var weaponCooldownIcon:CooldownIcon;
 	var dodgeCooldownIcon:CooldownIcon;
 	var hearts:Array<FlxSprite>;
-	var bossHealthBar:BossHealthBar;
+	public var bossHealthBar:BossHealthBar;
 
 	var player:Player;
 	var boss:IBoss;
@@ -30,9 +30,12 @@ class HUD extends FlxGroup
 	public function setAlpha(value:Float):Void
 	{
 		_alpha = value;
-		// Apply alpha to all members
+		// Apply alpha to all members EXCEPT boss health bar (it manages its own alpha)
 		forEach(function(member:FlxBasic)
 		{
+			if (member == bossHealthBar)
+				return; // Skip boss health bar
+
 			if (Std.isOfType(member, FlxSprite))
 			{
 				var sprite:FlxSprite = cast member;
@@ -87,17 +90,18 @@ class HUD extends FlxGroup
 		// Cooldown icons below hearts, aligned with leftmost heart
 		var iconsY = padding + 8 + 2; // Below hearts with 2px gap
 
-		// Weapon cooldown icon
-		weaponCooldownIcon = new CooldownIcon(padding, iconsY, "assets/images/bow-arrow-icon.png");
+		// Weapon cooldown icon - use single sprite with frame selection
+		var weaponFrame = getWeaponIconFrame();
+		weaponCooldownIcon = new CooldownIcon(padding, iconsY, "assets/images/weapon-type-icons.png", weaponFrame);
 		add(weaponCooldownIcon);
 
 		// Dodge cooldown icon (14px = 12px icon width + 2px gap)
 		dodgeCooldownIcon = new CooldownIcon(padding + 14, iconsY, "assets/images/dodge-icon.png");
 		add(dodgeCooldownIcon);
 
-		var barWidth:Int = 180;
+		var barWidth:Int = Std.int(FlxG.width - 16);
 		var barHeight:Int = 3;
-		var barX:Float = (FlxG.width - barWidth) / 2;
+		var barX:Float = 8;
 		var barY:Float = FlxG.height - barHeight - padding * 2;
 
 		bossHealthBar = new BossHealthBar(boss, barX, barY, barWidth, barHeight);
@@ -142,5 +146,26 @@ class HUD extends FlxGroup
 	{
 		if (bossHealthBar != null)
 			bossHealthBar.visible = visible;
+	}
+	public function revealBossName():Void
+	{
+		if (bossHealthBar != null)
+			bossHealthBar.revealBossName();
+	}
+
+	function getWeaponIconFrame():Int
+	{
+		// Determine weapon frame from player's weapon type
+		// Frame order: bow=0, sword=1, wand=2, halberd=3
+		if (Std.isOfType(player.weapon, Arrow))
+			return 0;
+		else if (Std.isOfType(player.weapon, Sword))
+			return 1;
+		else if (Std.isOfType(player.weapon, Wand))
+			return 2;
+		else if (Std.isOfType(player.weapon, Halberd))
+			return 3;
+		else
+			return 0; // Default to bow
 	}
 }

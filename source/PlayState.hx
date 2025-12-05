@@ -1,11 +1,13 @@
 package;
 
+import CharacterData.WeaponType;
 import flixel.FlxG;
 import flixel.FlxObject;
 import flixel.FlxSprite;
 import flixel.FlxState;
 import flixel.group.FlxGroup;
 import flixel.math.FlxMath;
+import flixel.math.FlxPoint;
 import flixel.tile.FlxBaseTilemap.FlxTilemapAutoTiling;
 import flixel.tile.FlxTilemap;
 import flixel.tweens.FlxEase;
@@ -15,18 +17,28 @@ import flixel.util.FlxTimer;
 
 class PlayState extends FlxState
 {
-	var map:FlxTilemap;
+	public static var current:PlayState;
+
+	public var map:FlxTilemap;
 	public var player:Player;
+	var selectedCharacter:CharacterData; // Character selected in CharacterSelectState
 
 	var projectiles:FlxTypedGroup<Projectile>;
 	var bossProjectiles:FlxTypedGroup<Projectile>;
-	var hud:HUD;
+	var mayflies:FlxTypedGroup<Mayfly>;
+	var hearts:FlxTypedGroup<HeartPickup>;
+
+	public var hud:HUD;
 	// Boss phases
 	var boss:BossPhase01Larva;
 	var boss2:BossPhase02;
 	var currentBossPhase:Int = 1;
 	
 	var cameraTarget:FlxObject;
+
+	// Mayfly spawning
+	var mayflySpawnTimer:Float = 0;
+	var mayflySpawnInterval:Float = 3.0; // Spawn attempt every 3 seconds
 
 	public var shadowLayer:ShadowLayer;
 
@@ -40,10 +52,21 @@ class PlayState extends FlxState
 	var gameState:GameState = INTRO;
 	var transitionTimer:Float = 0;
 
+	public function new(?character:CharacterData)
+	{
+		super();
+		current = this;
+		selectedCharacter = character;
+	}
+
 	override public function create()
 	{
 		super.create();
 		Actions.init();
+
+		// Enable pixel-perfect rendering
+		FlxG.camera.pixelPerfectRender = true;
+		FlxG.camera.antialiasing = false;
 
 		map = new FlxTilemap();
 		map.loadMapFromCSV("assets/maps/base.csv", "assets/images/lofi_environment.png", 8, 8, FlxTilemapAutoTiling.OFF, 0, 0);
@@ -58,6 +81,11 @@ class PlayState extends FlxState
 		// Create projectile groups (but don't add yet - add after player/boss for proper layering)
 		projectiles = new FlxTypedGroup<Projectile>();
 		bossProjectiles = new FlxTypedGroup<Projectile>();
+		mayflies = new FlxTypedGroup<Mayfly>(5);
+		hearts = new FlxTypedGroup<HeartPickup>(10);
+
+		add(hearts);
+		
 
 		eggSprite = new FlxSprite(0, 0);
 		eggSprite.loadGraphic("assets/images/boss-phase-00-egg.png", true, 256, 144);
@@ -73,6 +101,22 @@ class PlayState extends FlxState
 
 		player = new Player((map.width / 2) - 4, map.height - 32, projectiles);
 		player.active = false;
+		// Apply character stats if available
+		if (selectedCharacter != null)
+		{
+			player.maxHP = selectedCharacter.maxHP;
+			player.currentHP = selectedCharacter.maxHP;
+			player.attackDamage = selectedCharacter.attackDamage;
+			player.moveSpeed = selectedCharacter.moveSpeed;
+			player.attackCooldown = selectedCharacter.attackCooldown;
+
+			// Set the character sprite frame from the selected character
+			player.animation.frameIndex = selectedCharacter.spriteFrame;
+
+			// Set the weapon based on character's weapon type
+			player.setWeapon(selectedCharacter.weaponType);
+		}
+		
 		add(player);
 
 		// Create player shadow
@@ -91,6 +135,9 @@ class PlayState extends FlxState
 
 		// Create boss shadows for each segment
 		boss.createShadows(shadowLayer);
+
+		// Add mayflies and hearts before projectiles
+		add(mayflies);
 
 		// Add projectiles AFTER player and boss so they render on top
 		add(projectiles);
@@ -136,6 +183,9 @@ class PlayState extends FlxState
 				startPhase1DeathSequence();
 			}
 			
+			// Update Mayfly spawning
+			updateMayflySpawning(elapsed);
+			
 			checkProjectileCollisions();
 			checkBossCollisions();
 		}
@@ -146,12 +196,18 @@ class PlayState extends FlxState
 		else if (gameState == PHASE_1_5_ACTIVE)
 		{
 			updatePhase1_5(elapsed);
+			// IMPORTANT: Spawn MORE mayflies during cocoon phase so player can heal!
+			updateMayflySpawning(elapsed);
+			
 			checkProjectileCollisions();
 			// No boss collisions during cocoon phase
 		}
 		else if (gameState == PHASE_2_ACTIVE)
 		{
 			// TODO: Check Phase 2 boss defeat
+			// Update Mayfly spawning
+			updateMayflySpawning(elapsed);
+			
 			checkProjectileCollisions();
 			checkPhase2Collisions();
 		}
@@ -330,6 +386,8 @@ class PlayState extends FlxState
 					introState = HEALTH_BAR_FILL;
 					introTimer = 0;
 					boss.currentHealth = 0;
+					// Start revealing boss name as health bar fills
+					hud.revealBossName();
 				}
 
 			case HEALTH_BAR_FILL:
@@ -417,6 +475,7 @@ class PlayState extends FlxState
 				proj.stick();
 			}
 		});
+
 		bossProjectiles.forEachAlive(function(proj:Projectile)
 		{
 			if (proj.x < FlxG.worldBounds.left
@@ -427,6 +486,128 @@ class PlayState extends FlxState
 				proj.kill();
 			}
 		});
+		// Update homing projectiles with targets
+		updateHomingProjectiles();
+
+		// Check player projectiles vs Mayflies
+		FlxG.overlap(projectiles, mayflies, arrowHitMayfly);
+
+		// Check player picking up hearts
+		FlxG.overlap(player, hearts, playerPickupHeart);
+
+		// Check melee weapon collisions
+		checkMeleeWeaponCollisions();
+	}
+
+	function updateHomingProjectiles():Void
+	{
+		projectiles.forEachAlive(function(proj:Projectile)
+		{
+			// Check if this is a magic ball projectile with homing
+			if (Std.isOfType(proj, Wand.MagicBallProjectile))
+			{
+				var magicBall:Wand.MagicBallProjectile = cast proj;
+
+				if (magicBall.isHoming && !magicBall.isStuck)
+				{
+					// Find nearest enemy target
+					var nearestEnemy = findNearestEnemy(magicBall.x + magicBall.width / 2, magicBall.y + magicBall.height / 2);
+					magicBall.targetEnemy = nearestEnemy;
+				}
+			}
+		});
+	}
+
+	function findNearestEnemy(fromX:Float, fromY:Float):FlxSprite
+	{
+		var nearest:FlxSprite = null;
+		var nearestDist:Float = Math.POSITIVE_INFINITY;
+
+		// Check boss segments
+		if (boss != null && boss.alive && boss.visible)
+		{
+			for (segment in boss.members)
+			{
+				if (segment != null && segment.alive)
+				{
+					var dx = (segment.x + segment.width / 2) - fromX;
+					var dy = (segment.y + segment.height / 2) - fromY;
+					var dist = dx * dx + dy * dy; // Use squared distance to avoid sqrt
+
+					if (dist < nearestDist)
+					{
+						nearestDist = dist;
+						nearest = segment;
+					}
+				}
+			}
+		}
+
+		// Check mayflies
+		mayflies.forEachAlive(function(mayfly:Mayfly)
+		{
+			var dx = (mayfly.x + mayfly.width / 2) - fromX;
+			var dy = (mayfly.y + mayfly.height / 2) - fromY;
+			var dist = dx * dx + dy * dy;
+
+			if (dist < nearestDist)
+			{
+				nearestDist = dist;
+				nearest = mayfly;
+			}
+		});
+
+		return nearest;
+	}
+
+	function checkMeleeWeaponCollisions():Void
+	{
+		// Check if player is using a melee weapon
+		if (Std.isOfType(player.weapon, Sword))
+		{
+			var sword:Sword = cast player.weapon;
+			var hitbox = sword.getSlashHitbox();
+
+			if (hitbox.exists && hitbox.alpha > 0)
+			{
+				// Check vs boss segments
+				if (boss != null && boss.alive && boss.visible)
+				{
+					FlxG.overlap(hitbox, boss, function(h:FlxSprite, b:FlxSprite)
+					{
+						boss.takeDamage(sword.baseDamage * player.attackDamage);
+					});
+				}
+
+				// Check vs mayflies
+				FlxG.overlap(hitbox, mayflies, function(h:FlxSprite, m:Mayfly)
+				{
+					m.takeDamage(sword.baseDamage * player.attackDamage);
+				});
+			}
+		}
+		else if (Std.isOfType(player.weapon, Halberd))
+		{
+			var halberd:Halberd = cast player.weapon;
+			var hitbox = halberd.getJabHitbox();
+
+			if (halberd.isJabActive() && hitbox.exists)
+			{
+				// Check vs boss segments
+				if (boss != null && boss.alive && boss.visible)
+				{
+					FlxG.overlap(hitbox, boss, function(h:FlxSprite, b:FlxSprite)
+					{
+						boss.takeDamage(halberd.baseDamage * player.attackDamage);
+					});
+				}
+				// Check vs mayflies
+				FlxG.overlap(hitbox, mayflies, function(h:FlxSprite, m:Mayfly)
+				{
+					m.takeDamage(halberd.baseDamage * player.attackDamage);
+				});
+			}
+		}
 	}
 
 	function checkBossCollisions():Void
@@ -434,14 +615,9 @@ class PlayState extends FlxState
 		if (!boss.alive || !boss.visible)
 			return;
 
-		for (segment in boss.members)
-		{
-			if (segment != null && segment.alive)
-			{
-				FlxG.overlap(projectiles, segment, arrowHitBossSegment);
-				FlxG.overlap(player, segment, playerHitBossSegment);
-			}
-		}
+		// FlxG.overlap can handle groups directly
+		FlxG.overlap(projectiles, boss, arrowHitBossSegment);
+		FlxG.overlap(player, boss, playerHitBossSegment);
 		FlxG.overlap(player, bossProjectiles, playerHitProjectile);
 	}
 
@@ -451,7 +627,13 @@ class PlayState extends FlxState
 			return;
 
 		boss.takeDamage(arrow.damage);
-		arrow.stick();
+		if (Std.isOfType(arrow, Wand.FireballProjectile))
+		{
+			var fireball:Wand.FireballProjectile = cast arrow;
+			boss.applyBurn(fireball.burnDuration, fireball.burnDamagePerSecond);
+		}
+		arrow.kill();
+		
 	}
 
 	function playerHitBossSegment(player:Player, segment:FlxSprite):Void
@@ -473,6 +655,21 @@ class PlayState extends FlxState
 		}
 		proj.kill();
 	}
+	function arrowHitMayfly(proj:Projectile, mayfly:Mayfly):Void
+	{
+		if (proj.isStuck || !mayfly.alive)
+			return;
+
+		mayfly.takeDamage(proj.damage);
+
+		proj.kill();
+	}
+
+	function playerPickupHeart(player:Player, heart:HeartPickup):Void
+	{
+		heart.collect(player);
+	}
+	
 	// ===== PHASE TRANSITION SYSTEM =====
 
 	function startPhase1DeathSequence():Void
@@ -486,10 +683,17 @@ class PlayState extends FlxState
 		player.velocity.set(0, 0);
 		boss.active = false;
 
-		// Pan camera to boss head (smooth transition)
-		FlxTween.tween(FlxG.camera.scroll, {
-			x: boss.headSegment.sprite.x - FlxG.width / 2 + boss.headSegment.sprite.width / 2,
-			y: boss.headSegment.sprite.y - FlxG.height / 2 + boss.headSegment.sprite.height / 2
+		// Initialize cameraTarget to player position
+		cameraTarget.setPosition(player.x + player.width / 2, player.y + player.height / 2);
+
+		// Switch camera to following cameraTarget for cinematics
+		FlxG.camera.follow(cameraTarget, LOCKON);
+
+		// Pan camera to boss head using cameraTarget (smooth transition)
+		var headPos = boss.getHeadPosition();
+		FlxTween.tween(cameraTarget, {
+			x: headPos.x,
+			y: headPos.y
 		}, 1.0, {ease: FlxEase.quadInOut});
 	}
 
@@ -497,10 +701,14 @@ class PlayState extends FlxState
 	{
 		transitionTimer += elapsed;
 
-		// Sequence: pan(1s) → roar(1.5s) → crawl up(2.5s) → fade cocoon(1.5s) → wait(0.5s)
+		// Sequence: pan(1s) → roar(1.5s) → crawl up(2.5s) → align with cocoon → fade cocoon(1.5s) → pan back to player
 
-		var targetX = map.width / 2;
-		var targetY = 60; // Near top of screen
+		// Position where cocoon will appear
+		var cocoonCenterX = map.width / 2;
+		var cocoonCenterY = 60; // Near top of screen
+
+		// Calculate where boss head should be (aligned with bottom of cocoon)
+		var bossTargetY = cocoonCenterY + (cocoonSprite.height / 2); // Bottom of cocoon
 
 		if (transitionTimer > 1.0 && transitionTimer < 2.5)
 		{
@@ -516,25 +724,33 @@ class PlayState extends FlxState
 		}
 		else if (transitionTimer > 2.5 && transitionTimer < 5.0)
 		{
-			// Smoothly crawl upward to center top using boss's moveTo
-			boss.moveTo(targetX, targetY, 40, elapsed);
+			// Smoothly crawl upward to align with cocoon bottom
+			boss.moveTo(cocoonCenterX, bossTargetY, 40, elapsed);
+
+			// Track boss head with camera during movement
+			var headPos = boss.getHeadPosition();
+			cameraTarget.x = headPos.x;
+			cameraTarget.y = headPos.y;
 		}
 		else if (transitionTimer > 5.0 && transitionTimer < 6.5)
 		{
-			// Make sure boss is at final position before spawning cocoon
-			boss.headX = targetX;
-			boss.headY = targetY;
+			// Make sure boss is at final position
+			boss.headX = cocoonCenterX;
+			boss.headY = bossTargetY;
 
-			// Fade in cocoon over boss and hide health bar
+			// Keep camera on boss head
+			cameraTarget.x = boss.headX;
+			cameraTarget.y = boss.headY;
+
+			// Fade in cocoon over boss (aligned so boss head is at cocoon bottom)
 			if (cocoonSprite.alpha == 0)
 			{
 				trace("Spawning cocoon...");
-				cocoonSprite.x = boss.headX - cocoonSprite.width / 2;
-				cocoonSprite.y = boss.headY - cocoonSprite.height / 2;
+				cocoonSprite.x = cocoonCenterX - cocoonSprite.width / 2;
+				cocoonSprite.y = cocoonCenterY - cocoonSprite.height / 2;
 				cocoonSprite.visible = true;
 
-				// Create shadow for cocoon using alpha channel
-				// Width: 1.2x, Height: 1.0x, Anchor: center.x, center.y + 4
+				// Create shadow for cocoon
 				var cocoonShadow = new Shadow(cocoonSprite, 1.2, 1.0, 0, 4, true);
 				shadowLayer.add(cocoonShadow);
 
@@ -563,12 +779,31 @@ class PlayState extends FlxState
 				}
 			}
 		}
-		else if (transitionTimer > 7.0)
+		else if (transitionTimer > 6.5 && transitionTimer < 7.5)
 		{
-			// Hide boss, start Phase 1.5
-			boss.visible = false;
-			boss.die();
+			// Remove boss
+			if (boss.visible)
+			{
+				boss.visible = false;
+				boss.die();
+			}
 
+			// Pan camera back to player
+			if (transitionTimer - elapsed <= 6.5)
+			{
+				trace("Panning camera back to player...");
+				FlxTween.tween(cameraTarget, {
+					x: player.x + player.width / 2,
+					y: player.y + player.height / 2
+				}, 1.0, {ease: FlxEase.quadInOut});
+			}
+		}
+		else if (transitionTimer > 7.5)
+		{
+			// Switch camera back to following player
+			FlxG.camera.follow(player, LOCKON);
+
+			// Start Phase 1.5
 			startPhase1_5();
 		}
 	}
@@ -579,17 +814,16 @@ class PlayState extends FlxState
 		gameState = PHASE_1_5_ACTIVE;
 		transitionTimer = 0;
 
-		// Pan camera back to player
-		FlxTween.tween(FlxG.camera.scroll, {
-			x: player.x - FlxG.width / 2 + player.width / 2,
-			y: player.y - FlxG.height / 2 + player.height / 2
+		// Pan camera back to player using cameraTarget
+		FlxTween.tween(cameraTarget, {
+			x: player.x,
+			y: player.y
 		}, 1.0, {
 			ease: FlxEase.quadInOut,
 			onComplete: function(t:FlxTween)
 			{
 				// Reactivate player
 				player.active = true;
-				FlxG.camera.follow(player, LOCKON, 1);
 			}
 		});
 
@@ -620,10 +854,10 @@ class PlayState extends FlxState
 		player.active = false;
 		player.velocity.set(0, 0);
 
-		// Pan to cocoon
-		FlxTween.tween(FlxG.camera.scroll, {
-			x: cocoonSprite.x + cocoonSprite.width / 2 - FlxG.width / 2,
-			y: cocoonSprite.y + cocoonSprite.height / 2 - FlxG.height / 2
+		// Pan to cocoon using cameraTarget
+		FlxTween.tween(cameraTarget, {
+			x: cocoonSprite.x + cocoonSprite.width / 2,
+			y: cocoonSprite.y + cocoonSprite.height / 2
 		}, 1.0, {
 			ease: FlxEase.quadInOut,
 			onComplete: function(t:FlxTween)
@@ -660,23 +894,81 @@ class PlayState extends FlxState
 				boss2.activate();
 				gameState = PHASE_2_ACTIVE;
 
-				// Reactivate player and camera
-				player.active = true;
-				FlxG.camera.follow(player, LOCKON, 1);
-
-				trace("Phase 2 active!");
+				// Tween camera back to player
+				FlxTween.tween(cameraTarget, {x: player.x, y: player.y}, 1.0, {
+					ease: FlxEase.quadInOut,
+					onComplete: function(t:FlxTween)
+					{
+						// Reactivate player
+						player.active = true;
+						trace("Phase 2 active!");
+					}
+				});
 			}
 		});
 	}
 
 	function checkPhase2Collisions():Void
 	{
-		// TODO: Implement Phase 2 collision detection
-		// For now, just basic overlap with all parts
-		if (boss2 != null && boss2.exists)
+		if (boss2 == null || !boss2.exists || !boss2.isActive)
+			return;
+
+		// Check player projectiles hitting boss body parts
+		projectiles.forEachAlive(function(p:Projectile)
 		{
-			// TODO: Add proper collision for each body part
+			// Check collision with main body parts (thorax, head, abdomen)
+			if (p.overlaps(boss2.thorax) || p.overlaps(boss2.head) || p.overlaps(boss2.abdomen))
+			{
+				boss2.takeDamage(player.attackDamage);
+				p.kill();
+			}
+		});
+
+		// Check boss hitting player (when charging)
+		if (boss2.attackState == CHARGE_ATTACKING)
+		{
+			// Check if any body part hits player
+			if (player.overlaps(boss2.thorax) || player.overlaps(boss2.head) || player.overlaps(boss2.abdomen))
+			{
+				player.takeDamage(1);
+				player.knockback(boss2.x + boss2.width / 2, boss2.y + boss2.height / 2, 150);
+			}
 		}
+	}
+
+	function updateMayflySpawning(elapsed:Float):Void
+	{
+		var activeMayflies = mayflies.countLiving();
+
+		var spawnRate = activeMayflies == 0 ? 1.0 : 3.0;
+
+		if (mayflySpawnTimer < spawnRate)
+		{
+			mayflySpawnTimer += elapsed;
+		}
+		else if (activeMayflies < 4)
+		{
+			// Slight random variance to spawn timer
+			mayflySpawnTimer += FlxG.random.float(0, 0.5);
+			var mayfly:Mayfly = mayflies.getFirstAvailable();
+			if (mayfly == null)
+			{
+				mayfly = new Mayfly();
+				mayflies.add(mayfly);
+			}
+			mayfly.spawn();
+		}
+	}
+
+	public function spawnHeart(Pos:FlxPoint):Void
+	{
+		var heart:HeartPickup = hearts.getFirstAvailable();
+		if (heart == null)
+		{
+			heart = new HeartPickup();
+			hearts.add(heart);
+		}
+		heart.spawn(Pos);
 	}
 }
 

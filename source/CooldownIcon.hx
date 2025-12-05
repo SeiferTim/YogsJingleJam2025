@@ -16,7 +16,7 @@ class CooldownIcon extends FlxSpriteGroup
 	var isOnCooldown:Bool = false;
 	var baseIconY:Float = 2;
 
-	public function new(X:Float, Y:Float, IconPath:String)
+	public function new(X:Float, Y:Float, IconPath:String, ?frameIndex:Int = 0)
 	{
 		super(X, Y);
 
@@ -38,7 +38,9 @@ class CooldownIcon extends FlxSpriteGroup
 		add(chargeBar);
 
 		icon = new FlxSprite(2, 2);
-		icon.loadGraphic(IconPath);
+		icon.loadGraphic(IconPath, true, 8, 8);
+		icon.animation.frameIndex = frameIndex;
+		icon.antialiasing = false;
 		icon.scrollFactor.set(0, 0);
 		add(icon);
 

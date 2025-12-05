@@ -6,6 +6,7 @@ import flixel.graphics.frames.FlxAtlasFrames;
 import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxMath;
 import flixel.math.FlxPoint;
+import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
 import flixel.util.FlxSpriteUtil;
 
@@ -13,9 +14,15 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 {
 	public var maxHealth:Float = 1000;
 	public var currentHealth:Float = 1000;
+	public var bossName:String = "Resh'Lar, She Who Molts the First Shell";
 	public var contactDamage:Float = 1.0;
 	public var width:Float = 40;
 	public var height:Float = 40;
+
+	// Burn effect tracking
+	public var isBurning:Bool = false;
+	public var burnTimer:Float = 0;
+	public var burnDamagePerSecond:Float = 0;
 
 	public var headSegment:BossSegment;
 	var foreSegment:BossSegment;
@@ -287,6 +294,17 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		if (!isReady)
 		{
 			return;
+		}
+		// Apply burn damage
+		if (isBurning)
+		{
+			burnTimer -= elapsed;
+			takeDamage(burnDamagePerSecond * elapsed);
+
+			if (burnTimer <= 0)
+			{
+				isBurning = false;
+			}
 		}
 
 		modeTimer += elapsed;
@@ -598,8 +616,27 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		currentHealth -= damage;
 		if (currentHealth < 0)
 			currentHealth = 0;
+		// Notify health bar
+		PlayState.current.hud.bossHealthBar.showDamage(damage);
+
+		// Flash effect on all segments using FlxTween
+		forEach(function(spr:FlxSprite)
+		{
+			if (spr != null)
+			{
+				spr.color = FlxColor.RED;
+				FlxTween.color(spr, 0.1, FlxColor.RED, FlxColor.WHITE);
+			}
+		});
+
 		if (currentHealth <= 0)
 			die();
+	}
+	public function applyBurn(duration:Float, damagePerSecond:Float):Void
+	{
+		isBurning = true;
+		burnTimer = duration;
+		burnDamagePerSecond = damagePerSecond;
 	}
 
 	public function die():Void

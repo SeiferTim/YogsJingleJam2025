@@ -10,6 +10,7 @@ class CharacterData
 {
 	public var name:String;
 	public var weaponType:WeaponType;
+	public var spriteFrame:Int; // Which sprite frame to use (0-7 in players.png)
 
 	// Which stats are buffed/nerfed
 	public var bestStat:StatType;
@@ -43,10 +44,11 @@ class CharacterData
 	public static inline var BASE_COOLDOWN:Float = 1.0;
 	public static inline var BASE_HP:Int = 3; // 3 hearts to start
 
-	public function new(Name:String, Weapon:WeaponType, BestStat:StatType, WorstStat:StatType)
+	public function new(Name:String, Weapon:WeaponType, BestStat:StatType, WorstStat:StatType, SpriteFrame:Int = 0)
 	{
 		name = Name;
 		weaponType = Weapon;
+		spriteFrame = SpriteFrame;
 
 		bestStat = BestStat;
 		worstStat = WorstStat;
@@ -171,7 +173,19 @@ class CharacterData
 		var worstOptions = allStats.filter(s -> s != bestStat);
 		var worstStat = worstOptions[Std.random(worstOptions.length)];
 
-		return new CharacterData(name, weapon, bestStat, worstStat);
+		// Generate sprite frame: randomly pick male or female (0-3 = male, 4-7 = female)
+		var isFemale = Math.random() > 0.5;
+		var frameOffset = isFemale ? 4 : 0;
+
+		var spriteFrame = switch (weapon)
+		{
+			case BOW: 0 + frameOffset; // archer
+			case SWORD: 1 + frameOffset; // warrior
+			case WAND: 2 + frameOffset; // mage
+			case HALBERD: 3 + frameOffset; // halberdier
+		}
+
+		return new CharacterData(name, weapon, bestStat, worstStat, spriteFrame);
 	}
 
 	/**
@@ -182,6 +196,7 @@ class CharacterData
 		return {
 			name: name,
 			weaponType: weaponType,
+			spriteFrame: spriteFrame,
 			bestStat: bestStat,
 			worstStat: worstStat,
 			level: level,
@@ -195,7 +210,7 @@ class CharacterData
 	 */
 	public static function fromSaveData(data:Dynamic):CharacterData
 	{
-		var char = new CharacterData(data.name, data.weaponType, data.bestStat, data.worstStat);
+		var char = new CharacterData(data.name, data.weaponType, data.bestStat, data.worstStat, data.spriteFrame);
 
 		char.level = data.level;
 		char.xp = data.xp;
@@ -210,7 +225,7 @@ class CharacterData
 	 */
 	public function clone():CharacterData
 	{
-		var copy = new CharacterData(name, weaponType, bestStat, worstStat);
+		var copy = new CharacterData(name, weaponType, bestStat, worstStat, spriteFrame);
 		copy.level = level;
 		copy.xp = xp;
 		copy.maxHP = maxHP;
@@ -224,6 +239,7 @@ enum WeaponType
 	BOW;
 	SWORD;
 	WAND;
+	HALBERD;
 }
 
 enum StatType

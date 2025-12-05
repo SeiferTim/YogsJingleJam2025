@@ -1,0 +1,1 @@
+lime build html5 -clean -final && butler push export/html5/bin axolstudio/echoes-of-the-infinite-recursor:html5

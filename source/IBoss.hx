@@ -4,6 +4,7 @@ interface IBoss
 {
 	public var maxHealth:Float;
 	public var currentHealth:Float;
+	public var bossName:String;
 	
 	public function takeDamage(damage:Float):Void;
 	public function die():Void;

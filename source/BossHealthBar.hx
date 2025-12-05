@@ -2,9 +2,9 @@ package;
 
 import flixel.FlxG;
 import flixel.FlxSprite;
+import flixel.graphics.frames.FlxBitmapFont;
 import flixel.group.FlxGroup;
 import flixel.text.FlxBitmapText;
-import flixel.text.FlxText;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.ui.FlxBar;
@@ -17,83 +17,162 @@ class BossHealthBar extends FlxGroup
 	var damageBar:FlxBar;
 	var healthBar:FlxBar;
 	var damageText:FlxBitmapText;
+	var nameLetters:Array<FlxSprite>; // Individual sprites for each letter
+	var font:FlxBitmapFont;
 
 	var boss:IBoss;
 	var previousHealth:Float;
 	var activeTween:FlxTween;
-	var damageTextTimer:Float = 0;
-	var damageTextDuration:Float = 1.5;
+	var damageAccumulated:Float = 0;
+	var damageTween:FlxTween;
 
 	var barX:Float;
 	var barY:Float;
 	var barWidth:Int;
+	var barHeight:Int;
 
 	public function new(Boss:IBoss, X:Float, Y:Float, Width:Int, Height:Int)
 	{
 		super();
 
 		boss = Boss;
-		previousHealth = boss.currentHealth;
+		previousHealth = boss.maxHealth; // Use maxHealth, not currentHealth (which might be 0 during intro)
 		activeTween = null;
 
 		barX = X;
 		barY = Y;
 		barWidth = Width;
+		barHeight = Height;
 
-		damageBar = new FlxBar(barX, barY, LEFT_TO_RIGHT, Width, 6, null, "", 0, boss.maxHealth, true);
+		// Load sml-font for boss name letters
+		font = FlxBitmapFont.fromAngelCode(AssetPaths.sml_font__png, AssetPaths.sml_font__xml);
+		nameLetters = [];
+
+		damageBar = new FlxBar(barX, barY, LEFT_TO_RIGHT, Width, Height, null, "", 0, boss.maxHealth, true);
 		damageBar.createFilledBar(FlxColor.fromRGB(40, 40, 40), FlxColor.WHITE, true, FlxColor.fromRGB(120, 120, 120), 1);
 		damageBar.scrollFactor.set(0, 0);
 		damageBar.value = boss.maxHealth;
 		add(damageBar);
 
-		healthBar = new FlxBar(barX, barY, LEFT_TO_RIGHT, Width, 6, boss, "currentHealth", 0, boss.maxHealth, true);
+		healthBar = new FlxBar(barX, barY, LEFT_TO_RIGHT, Width, Height, boss, "currentHealth", 0, boss.maxHealth, true);
 		healthBar.createFilledBar(FlxColor.TRANSPARENT, FlxColor.RED, true, FlxColor.fromRGB(120, 120, 120), 1);
 		healthBar.scrollFactor.set(0, 0);
 		add(healthBar);
 
-		damageText = new FlxBitmapText(GameNumberFont.loadFont());
-		damageText.text = "";
+		// Create boss name AFTER bars
+		createBossName();
+
+		// Create damage text - STARTS INVISIBLE
+		damageText = new FlxBitmapText(font);
+		damageText.text = "0";
 		damageText.scrollFactor.set(0, 0);
-		damageText.visible = false;
+		damageText.y = barY - 10; // Same Y as boss name
+		damageText.alpha = 0; // Start invisible
+		damageText.x = barX + barWidth - damageText.width;
 		add(damageText);
+	}
+
+	function createBossName():Void
+	{
+		var name = boss.bossName;
+		var nameY = barY - 10; // 10px above the bar
+		var currentX = barX;
+
+		// Create a sprite for each letter using the font's character frame data
+		for (i in 0...name.length)
+		{
+			var charCode = name.charCodeAt(i);
+
+			// Handle spaces - add extra spacing
+			if (charCode == 32) // space character
+			{
+				currentX += 5;
+				continue;
+			}
+
+			var frame = font.getCharFrame(charCode);
+
+			if (frame != null)
+			{
+				// Create sprite and load the font graphic
+				var letterSprite = new FlxSprite(currentX, nameY);
+				letterSprite.loadGraphic(AssetPaths.sml_font__png);
+				letterSprite.frame = frame;
+				letterSprite.scrollFactor.set(0, 0);
+				letterSprite.alpha = 0; // Start invisible
+
+				nameLetters.push(letterSprite);
+				add(letterSprite);
+
+				// Use xadvance for proper spacing
+				var charAdvance = font.getCharAdvance(charCode);
+				currentX += charAdvance;
+			}
+		}
+	}
+
+	public function revealBossName(duration:Float = 1.0):Void
+	{
+		var letterDelay = 0.05; // Delay between each letter
+
+		// Fade in each letter sprite with staggered timing
+		for (i in 0...nameLetters.length)
+		{
+			var letter = nameLetters[i];
+			FlxTween.tween(letter, {alpha: 1}, 0.2, {
+				startDelay: i * letterDelay,
+				ease: FlxEase.quadOut
+			});
+		}
+	}
+
+	public function showDamage(damage:Float):Void
+	{
+		// If already showing damage and alpha >= 0.33, add to accumulated damage
+		if (damageText.alpha >= 0.33)
+		{
+			damageAccumulated += damage;
+		}
+		else
+		{
+			// New damage display
+			damageAccumulated = damage;
+		}
+
+		// Update text
+		damageText.text = Std.string(Math.round(damageAccumulated));
+
+		// Re-align to right
+		damageText.x = barX + barWidth - damageText.width;
+
+		// Cancel existing tween if any
+		if (damageTween != null)
+		{
+			damageTween.cancel();
+		}
+		// Pop to alpha 1, wait 0.5s, then fade out over 0.33s
+		damageText.alpha = 1.0;
+		damageTween = FlxTween.tween(damageText, {alpha: 0}, 0.33, {
+			startDelay: 0.5,
+			ease: FlxEase.quadOut
+		});
 	}
 
 	override function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
 
+		// Update white damage bar to follow health changes
 		if (boss.currentHealth < previousHealth)
 		{
-			if (previousHealth == boss.currentHealth)
-				return;
-
-			var damage = previousHealth - boss.currentHealth;
-			showDamageNumber(damage);
-
 			previousHealth = boss.currentHealth;
+
+			// Update white damage bar tween
 			if (activeTween != null)
 			{
 				activeTween.cancel();
 			}
 			activeTween = FlxTween.tween(damageBar, {value: boss.currentHealth}, 0.5, {ease: FlxEase.quadOut, startDelay: 0.5});
 		}
-
-		if (damageText.visible)
-		{
-			damageTextTimer += elapsed;
-			if (damageTextTimer >= damageTextDuration)
-			{
-				damageText.visible = false;
-			}
-		}
-	}
-
-	function showDamageNumber(damage:Float):Void
-	{
-		damageText.text = Std.string(Math.round(damage));
-		damageText.x = barX + (barWidth - damageText.width) / 2;
-		damageText.y = barY + (6 - damageText.height) / 2;
-		damageText.visible = true;
-		damageTextTimer = 0;
 	}
 }
