@@ -642,11 +642,8 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public function die():Void
 	{
 		alive = false;
-		exists = false;
-		forEach(function(spr:FlxSprite)
-		{
-			spr.kill();
-		});
+		// NOTE: Keep exists = true so PlayState can detect death and trigger phase transition
+		// PlayState will handle cleanup and phase changes
 	}
 
 	function get_x():Float

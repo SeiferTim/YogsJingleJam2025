@@ -120,7 +120,9 @@ class Mayfly extends FlxSprite
 
 	function onDeath():Void
 	{
-		if (FlxG.random.bool(25))
+		// Base 25% drop rate, scaled by player luck
+		var dropChance = 25.0 * PlayState.current.player.luck;
+		if (FlxG.random.bool(dropChance))
 		{
 			PlayState.current.spawnHeart(mp);
 		}

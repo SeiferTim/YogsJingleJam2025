@@ -49,48 +49,20 @@ class CooldownIcon extends FlxSpriteGroup
 
 	public function updateCooldown(cooldownPercent:Float):Void
 	{
-		if (cooldownPercent > 0)
-		{
-			cooldownBar.value = cooldownPercent * 100;
+		var onCooldown = cooldownPercent > 0;
+		cooldownBar.value = onCooldown ? cooldownPercent * 100 : 0;
 
-			if (!isOnCooldown)
-			{
-				isOnCooldown = true;
-				cooldownBar.createFilledBar(FlxColor.TRANSPARENT, FlxColor.RED, true, FlxColor.RED);
-			}
-		}
-		else
+		if (onCooldown != isOnCooldown)
 		{
-			cooldownBar.value = 0;
-
-			if (isOnCooldown)
-			{
-				isOnCooldown = false;
-				cooldownBar.createFilledBar(FlxColor.TRANSPARENT, FlxColor.RED, true, FlxColor.fromRGB(120, 120, 120));
-			}
+			isOnCooldown = onCooldown;
+			var borderColor = onCooldown ? FlxColor.RED : FlxColor.fromRGB(120, 120, 120);
+			cooldownBar.createFilledBar(FlxColor.TRANSPARENT, FlxColor.RED, true, borderColor);
 		}
 	}
 
 	public function updateCharge(chargePercent:Float, isFullCharge:Bool):Void
 	{
-		if (chargePercent > 0)
-		{
-			chargeBar.value = chargePercent * 100;
-
-			if (isFullCharge)
-			{
-				var shakeAmount = Math.sin(FlxG.game.ticks * 0.5) * 0.75;
-				icon.offset.y = shakeAmount;
-			}
-			else
-			{
-				icon.offset.y = 0;
-			}
-		}
-		else
-		{
-			chargeBar.value = 0;
-			icon.offset.y = 0;
-		}
+		chargeBar.value = chargePercent * 100;
+		icon.offset.y = (chargePercent > 0 && isFullCharge) ? Math.sin(FlxG.game.ticks * 0.5) * 0.75 : 0;
 	}
 }

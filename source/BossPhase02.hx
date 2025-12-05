@@ -659,13 +659,16 @@ class BossPhase02 extends FlxSprite implements IBoss
 	function onDefeated():Void
 	{
 		isActive = false;
-		// TODO: Trigger phase 2 death sequence
+		alive = false;
+		// NOTE: Keep exists = true so PlayState can detect death and trigger phase 3
+		// PlayState will handle cleanup and phase changes
 		trace("Phase 2 boss defeated!");
 	}
 
 	public function die():Void
 	{
-		kill();
+		alive = false;
+		// NOTE: Keep exists = true for phase transition detection
 	}
 
 	public function moveTo(targetX:Float, targetY:Float, speed:Float, elapsed:Float):Void

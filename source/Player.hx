@@ -1,86 +1,84 @@
 package;
 
+import CharacterData.WeaponType;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup;
 import flixel.math.FlxAngle;
-import flixel.math.FlxPoint;
-import flixel.math.FlxVelocity;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
 
 class Player extends FlxSprite
 {
+	// Stats
 	public var maxHP:Int = 3;
 	public var currentHP:Int = 3;
 	public var attackDamage:Float = 1.0;
 	public var moveSpeed:Float = 1.0;
-	public var attackCooldown:Float = 1.0;
+	public var luck:Float = 1.0;
 
-	var baseSpeed:Float = 40;
-
+	// Combat
+	public var weapon:Weapon;
+	public var facingAngle:Float = 0;
+	public var isInvincible:Bool = false;
+	
+	// Dodge
 	public var dodgeTimer:Float = 0;
 	public var dodgeCooldown:Float = 2.0;
 
-	var dodgeDuration:Float = 0.2;
-	var dodgeDistance:Float = 32;
-	var isDodging:Bool = false;
-	// Dodge animation tweens
-	var dodgeJumpTween:FlxTween;
-	var dodgeRotateTween:FlxTween;
-
-	public var isInvincible:Bool = false;
-
-	var invincibilityTimer:Float = 0;
-	var invincibilityDuration:Float = 1.0;
-
-	public var facingAngle:Float = 0;
-
+	// Visual
+	public var shadow:Shadow;
+	
+	// Internal
+	var baseSpeed:Float = 40;
+	var projectiles:FlxTypedGroup<Projectile>;
 	var reticle:FlxSprite;
 	var reticleDistance:Float = 12;
-
-	public var weapon:Weapon;
-
-	var projectiles:FlxTypedGroup<Projectile>;
 	var wasShootPressed:Bool = false;
-
-	public var shadow:Shadow;
+	var invincibilityTimer:Float = 0;
+	var invincibilityDuration:Float = 1.0;
+	var isDodging:Bool = false;
+	var dodgeDuration:Float = 0.2;
+	var dodgeDistance:Float = 32;
+	var dodgeTweens:Array<FlxTween> = [];
 
 	public function new(X:Float, Y:Float, Projectiles:FlxTypedGroup<Projectile>)
 	{
 		super(X, Y);
-
 		projectiles = Projectiles;
 
 		loadGraphic("assets/images/players.png", true, 8, 8);
 		animation.frameIndex = 0;
 		antialiasing = false;
-
 		centerOrigin();
-
 		solid = true;
 
-		weapon = new Arrow(this, projectiles); // Default weapon
-
+		weapon = new Arrow(this, projectiles);
+		
 		reticle = new FlxSprite();
 		reticle.makeGraphic(3, 3, FlxColor.WHITE);
 		reticle.offset.set(1, 1);
 	}
 
+	public function getCritChance():Float
+	{
+		return 5.0 * luck; // Base 5% per 1.0 luck
+	}
+
+	public function rollCrit():Bool
+	{
+		return FlxG.random.bool(getCritChance());
+	}
+
 	public function setWeapon(weaponType:CharacterData.WeaponType):Void
 	{
-		// Set weapon based on type
-		switch (weaponType)
+		weapon = switch (weaponType)
 		{
-			case BOW:
-				weapon = new Arrow(this, projectiles);
-			case SWORD:
-				weapon = new Sword(this, projectiles);
-			case WAND:
-				weapon = new Wand(this, projectiles);
-			case HALBERD:
-				weapon = new Halberd(this, projectiles);
+			case BOW: new Arrow(this, projectiles);
+			case SWORD: new Sword(this, projectiles);
+			case WAND: new Wand(this, projectiles);
+			case HALBERD: new Halberd(this, projectiles);
 		}
 	}
 
@@ -88,68 +86,70 @@ class Player extends FlxSprite
 	{
 		super.update(elapsed);
 
-		if (dodgeTimer > 0)
-			dodgeTimer -= elapsed;
-
-		if (invincibilityTimer > 0)
-		{
-			invincibilityTimer -= elapsed;
-			if (invincibilityTimer <= 0)
-			{
-				isInvincible = false;
-				alpha = 1.0;
-			}
-			else
-			{
-				alpha = 0.5 + Math.sin(invincibilityTimer * 20) * 0.5;
-			}
-		}
-
+		updateTimers(elapsed);
+		updateInvincibility(elapsed);
 		weapon.update(elapsed);
 
 		if (isDodging)
-		{
 			updateDodge(elapsed);
-		}
 		else
-		{
-			handleMovement(elapsed);
-			handleAiming();
-			handleShooting(elapsed);
-			handleDodge();
-		}
+			updateNormal(elapsed);
 
 		constrainToWorldBounds();
 		updateReticle();
 	}
 
-	function handleMovement(elapsed:Float):Void
+	function updateTimers(elapsed:Float):Void
 	{
-		var moveX:Float = 0;
-		var moveY:Float = 0;
+		if (dodgeTimer > 0)
+			dodgeTimer -= elapsed;
+	}
 
-		if (Actions.leftStick.x != 0 || Actions.leftStick.y != 0)
+	function updateInvincibility(elapsed:Float):Void
+	{
+		if (invincibilityTimer > 0)
 		{
-			moveX = Actions.leftStick.x;
-			moveY = Actions.leftStick.y;
+			invincibilityTimer -= elapsed;
+			alpha = invincibilityTimer <= 0 ? 1.0 : 0.5 + Math.sin(invincibilityTimer * 20) * 0.5;
+			if (invincibilityTimer <= 0)
+				isInvincible = false;
 		}
-		else
-		{
-			if (Actions.left.triggered)
-				moveX = -1;
-			if (Actions.right.triggered)
-				moveX = 1;
-			if (Actions.up.triggered)
-				moveY = -1;
-			if (Actions.down.triggered)
-				moveY = 1;
-		}
+	}
+
+	function updateNormal(elapsed:Float):Void
+	{
+		handleMovement();
+		handleAiming();
+		handleShooting();
+		handleDodge();
+	}
+
+	function handleMovement():Void
+	{
+		var moveX = Actions.leftStick.x != 0 ? Actions.leftStick.x : (Actions.right.triggered ? 1 : (Actions.left.triggered ? -1 : 0));
+		var moveY = Actions.leftStick.y != 0 ? Actions.leftStick.y : (Actions.down.triggered ? 1 : (Actions.up.triggered ? -1 : 0));
 
 		if (moveX != 0 || moveY != 0)
 		{
-			var speed = baseSpeed * moveSpeed;
 			var angle = Math.atan2(moveY, moveX);
-			velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
+			var speedMultiplier = 1.0;
+			
+			// Slow down while charging
+			if (weapon.isCharging)
+			{
+				speedMultiplier = 0.5;
+			}
+			// Speed up while spinning (sword only)
+			else if (Std.isOfType(weapon, Sword))
+			{
+				var sword:Sword = cast weapon;
+				if (sword.isSpinActive())
+				{
+					speedMultiplier = 1.5;
+				}
+			}
+			
+			velocity.set(Math.cos(angle) * baseSpeed * moveSpeed * speedMultiplier, Math.sin(angle) * baseSpeed * moveSpeed * speedMultiplier);
 		}
 		else
 		{
@@ -159,21 +159,31 @@ class Player extends FlxSprite
 
 	function handleAiming():Void
 	{
-		if (Actions.rightStick.x != 0 || Actions.rightStick.y != 0)
-		{
-			facingAngle = Math.atan2(Actions.rightStick.y, Actions.rightStick.x);
-		}
-		else
-		{
-			facingAngle = FlxAngle.angleBetweenMouse(this, false);
-		}
+		facingAngle = (Actions.rightStick.x != 0 || Actions.rightStick.y != 0) ? Math.atan2(Actions.rightStick.y,
+			Actions.rightStick.x) : FlxAngle.angleBetweenMouse(this, false);
 
 		var degrees = facingAngle * FlxAngle.TO_DEG;
 		flipX = (degrees < -45 || degrees > 135);
 	}
 
-	function handleShooting(elapsed:Float):Void
+	function handleShooting():Void
 	{
+		// Can't attack if already attacking or dodge rolling
+		var isAttacking = false;
+		if (Std.isOfType(weapon, Sword))
+		{
+			var sword:Sword = cast weapon;
+			isAttacking = sword.isSpinActive() || (sword.getSlashHitbox().exists && sword.getSlashHitbox().alpha > 0);
+		}
+		else if (Std.isOfType(weapon, Halberd))
+		{
+			var halberd:Halberd = cast weapon;
+			isAttacking = halberd.isJabActive();
+		}
+
+		if (isDodging || isAttacking)
+			return;
+		
 		if (Actions.shoot.triggered && !wasShootPressed)
 		{
 			weapon.startCharge();
@@ -188,6 +198,22 @@ class Player extends FlxSprite
 
 	function handleDodge():Void
 	{
+		// Can't dodge while charging, attacking, or already dodging
+		var isAttacking = false;
+		if (Std.isOfType(weapon, Sword))
+		{
+			var sword:Sword = cast weapon;
+			isAttacking = sword.isSpinActive() || (sword.getSlashHitbox().exists && sword.getSlashHitbox().alpha > 0);
+		}
+		else if (Std.isOfType(weapon, Halberd))
+		{
+			var halberd:Halberd = cast weapon;
+			isAttacking = halberd.isJabActive();
+		}
+
+		if (weapon.isCharging || isAttacking || isDodging)
+			return;
+		
 		if (Actions.dodge.triggered && dodgeTimer <= 0)
 		{
 			startDodge();
@@ -200,49 +226,18 @@ class Player extends FlxSprite
 		isDodging = true;
 		isInvincible = true;
 
-		var targetX = x + Math.cos(facingAngle) * dodgeDistance;
-		var targetY = y + Math.sin(facingAngle) * dodgeDistance;
-
-		targetX = Math.max(FlxG.worldBounds.left, Math.min(FlxG.worldBounds.right - width, targetX));
-		targetY = Math.max(FlxG.worldBounds.top, Math.min(FlxG.worldBounds.bottom - height, targetY));
-
 		var speed = dodgeDistance / dodgeDuration;
-		velocity.x = Math.cos(facingAngle) * speed;
-		velocity.y = Math.sin(facingAngle) * speed;
-		// Dodge roll animation: jump up and rotate
-		// Determine rotation direction based on facing angle
-		// Right (0 to 90, -90 to 0): positive rotation
-		// Left (90 to 180, -180 to -90): negative rotation
-		var rotationAmount:Float = 360;
+		velocity.set(Math.cos(facingAngle) * speed, Math.sin(facingAngle) * speed);
 
-		// Normalize facing angle to -180 to 180
-		var normalizedAngle = facingAngle * (180 / Math.PI);
-		while (normalizedAngle > 180)
-			normalizedAngle -= 360;
-		while (normalizedAngle < -180)
-			normalizedAngle += 360;
-
-		// If facing left (-180 to 0), rotate counter-clockwise (negative)
-		if (normalizedAngle < 0)
-		{
-			rotationAmount = -360;
-		}
-
-		// Tween offset.y up 2-3px (makes sprite appear to jump)
-		var jumpHeight = -2.5; // Negative because y increases downward
-		dodgeJumpTween = FlxTween.tween(offset, {y: jumpHeight}, dodgeDuration / 2, {
+		// Dodge roll animation
+		var rotationAmount = (facingAngle * FlxAngle.TO_DEG < 0) ? -360 : 360;
+		
+		dodgeTweens.push(FlxTween.tween(offset, {y: -2.5}, dodgeDuration / 2, {
 			ease: FlxEase.quadOut,
-			onComplete: function(t:FlxTween)
-			{
-				// Come back down
-				FlxTween.tween(offset, {y: 0}, dodgeDuration / 2, {ease: FlxEase.quadIn});
-			}
-		});
-
-		// Rotate sprite full revolution
-		dodgeRotateTween = FlxTween.tween(this, {angle: angle + rotationAmount}, dodgeDuration, {
-			ease: FlxEase.linear
-		});
+			onComplete: (_) -> FlxTween.tween(offset, {y: 0}, dodgeDuration / 2, {ease: FlxEase.quadIn})
+		}));
+		
+		dodgeTweens.push(FlxTween.tween(this, {angle: angle + rotationAmount}, dodgeDuration, {ease: FlxEase.linear}));
 	}
 
 	function updateDodge(elapsed:Float):Void
@@ -250,26 +245,23 @@ class Player extends FlxSprite
 		dodgeDuration -= elapsed;
 		if (dodgeDuration <= 0)
 		{
-			isDodging = false;
-			isInvincible = false;
-			dodgeDuration = 0.2;
-			velocity.set(0, 0);
-			// Reset visual state
-			offset.y = 0;
-			angle = 0;
-
-			// Cancel any remaining tweens
-			if (dodgeJumpTween != null)
-			{
-				dodgeJumpTween.cancel();
-				dodgeJumpTween = null;
-			}
-			if (dodgeRotateTween != null)
-			{
-				dodgeRotateTween.cancel();
-				dodgeRotateTween = null;
-			}
+			endDodge();
 		}
+	}
+
+	function endDodge():Void
+	{
+		isDodging = false;
+		isInvincible = false;
+		dodgeDuration = 0.2;
+		velocity.set(0, 0);
+		offset.y = 0;
+		angle = 0;
+		
+		for (tween in dodgeTweens)
+			if (tween != null)
+				tween.cancel();
+		dodgeTweens = [];
 	}
 
 	function updateReticle():Void
@@ -280,37 +272,36 @@ class Player extends FlxSprite
 
 	function constrainToWorldBounds():Void
 	{
-		var hitLeft = false;
-		var hitRight = false;
-		var hitTop = false;
-		var hitBottom = false;
+		var hitX = false;
+		var hitY = false;
 
 		if (x < FlxG.worldBounds.left)
 		{
 			x = FlxG.worldBounds.left;
-			hitLeft = true;
+			hitX = true;
 		}
-		if (x + width > FlxG.worldBounds.right)
+		else if (x + width > FlxG.worldBounds.right)
 		{
 			x = FlxG.worldBounds.right - width;
-			hitRight = true;
+			hitX = true;
 		}
+
 		if (y < FlxG.worldBounds.top)
 		{
 			y = FlxG.worldBounds.top;
-			hitTop = true;
+			hitY = true;
 		}
-		if (y + height > FlxG.worldBounds.bottom)
+		else if (y + height > FlxG.worldBounds.bottom)
 		{
 			y = FlxG.worldBounds.bottom - height;
-			hitBottom = true;
+			hitY = true;
 		}
 
 		if (isDodging)
 		{
-			if (hitLeft || hitRight)
+			if (hitX)
 				velocity.x = 0;
-			if (hitTop || hitBottom)
+			if (hitY)
 				velocity.y = 0;
 		}
 	}
@@ -320,24 +311,95 @@ class Player extends FlxSprite
 		if (isInvincible)
 			return;
 
-		currentHP -= 1;
-		if (currentHP < 0)
-			currentHP = 0;
-
+		currentHP = Std.int(Math.max(0, currentHP - 1));
 		isInvincible = true;
 		invincibilityTimer = invincibilityDuration;
 
 		if (currentHP <= 0)
+			onDeath();
+	}
+
+	function onDeath():Void
+	{
+		// Switch to death frame (living frame + 8)
+		var deathFrame = animation.frameIndex + 8;
+
+		// Check if death frame exists (players.png should have 16 frames: 0-7 living, 8-15 dead)
+		if (deathFrame < 16)
 		{
-			kill();
+			animation.frameIndex = deathFrame;
+
+			// Fade out then switch state
+			FlxTween.tween(this, {alpha: 0}, 1.0, {
+				onComplete: function(t:FlxTween)
+				{
+					switchToGameOver();
+				}
+			});
 		}
+		else
+		{
+			// No death frame available, just fade out
+			trace("Death frame not found, using fallback");
+			FlxTween.tween(this, {alpha: 0}, 1.0, {
+				onComplete: function(t:FlxTween)
+				{
+					switchToGameOver();
+				}
+			});
+		}
+	}
+
+	function switchToGameOver():Void
+	{
+		// Determine weapon type from current weapon
+		var weaponType:WeaponType = BOW;
+		if (Std.isOfType(weapon, Sword))
+			weaponType = SWORD;
+		else if (Std.isOfType(weapon, Wand))
+			weaponType = WAND;
+		else if (Std.isOfType(weapon, Halberd))
+			weaponType = HALBERD;
+
+		// Detect current phase from PlayState
+		var currentPhase:Int = 0; // Default to 0
+		if (PlayState.current != null)
+		{
+			switch (PlayState.current.gameState)
+			{
+				case PHASE_1_ACTIVE | PHASE_1_DEATH:
+					currentPhase = 1;
+				case PHASE_1_5_ACTIVE:
+					currentPhase = 1; // Deaths during Phase 1.5 count as Phase 1
+				case PHASE_2_HATCH | PHASE_2_ACTIVE | PHASE_2_DEATH:
+					currentPhase = 2;
+				case PHASE_2_5_ACTIVE:
+					currentPhase = 2; // Deaths during Phase 2.5 count as Phase 2
+				default:
+					currentPhase = 0;
+			}
+		}
+		// Save character data for ghost spawning
+		var characterData = new CharacterData("Ghost", weaponType, SPEED, DAMAGE, animation.frameIndex);
+		characterData.maxHP = maxHP;
+		characterData.attackDamage = attackDamage;
+		characterData.moveSpeed = moveSpeed;
+		characterData.luck = luck;
+		characterData.weaponType = weaponType;
+		characterData.deathPhase = currentPhase;
+
+		GameData.addDeadCharacter(characterData);
+
+		trace("Player died in phase " + currentPhase + " with weapon " + weaponType);
+
+		// Return to character select
+		FlxG.switchState(() -> new CharacterSelectState());
 	}
 
 	public function knockback(fromX:Float, fromY:Float, force:Float):Void
 	{
 		var angle = Math.atan2(y + height / 2 - fromY, x + width / 2 - fromX);
-		velocity.x = Math.cos(angle) * force;
-		velocity.y = Math.sin(angle) * force;
+		velocity.set(Math.cos(angle) * force, Math.sin(angle) * force);
 	}
 
 	override function draw():Void

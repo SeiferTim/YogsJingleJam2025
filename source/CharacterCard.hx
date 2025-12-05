@@ -5,6 +5,7 @@ import flixel.FlxSprite;
 import flixel.graphics.frames.FlxBitmapFont;
 import flixel.group.FlxSpriteGroup;
 import flixel.text.FlxBitmapText;
+import flixel.ui.FlxButton.FlxTypedButton;
 import flixel.util.FlxColor;
 
 class CharacterCard extends FlxSpriteGroup
@@ -17,11 +18,11 @@ class CharacterCard extends FlxSpriteGroup
 	var nameText:FlxBitmapText;
 	var classText:FlxBitmapText;
 	var weaponIcon:FlxSprite;
-	var selectButton:PixelButton;
+	var selectButton:FlxTypedButton<FlxBitmapText>;
 	var font:FlxBitmapFont;
 
 	var cardWidth:Int = 70;
-	var cardHeight:Int = 52; // Slightly bigger to accommodate proper button with bitmap font
+	var cardHeight:Int = 54; // +2px for spacing below button
 
 	public function new(X:Float, Y:Float, character:CharacterData, onSelect:CharacterData->Void)
 	{
@@ -40,7 +41,7 @@ class CharacterCard extends FlxSpriteGroup
 	{
 		// Background card
 		background = new FlxSprite(0, 0);
-		background.makeGraphic(cardWidth, cardHeight, 0xff2d3561);
+		background.loadGraphic("assets/images/character-card-bg.png");
 		add(background);
 
 		// Character name at top - centered
@@ -76,14 +77,22 @@ class CharacterCard extends FlxSpriteGroup
 		// SPD icon
 		createStatIcon(startX + 8 + iconSpacing, statsY, 1, character.bestStat == SPEED, character.worstStat == SPEED);
 
-		// CDN icon
-		createStatIcon(startX + 16 + iconSpacing * 2, statsY, 2, character.bestStat == COOLDOWN, character.worstStat == COOLDOWN);
+		// LCK icon
+		createStatIcon(startX + 16 + iconSpacing * 2, statsY, 2, character.bestStat == LUCK, character.worstStat == LUCK);
 
-		// PICK button using custom PixelButton with bitmap font
+		// PICK button using FlxTypedButton with bitmap font
 		var buttonWidth = cardWidth - 8;
 		var buttonHeight = 12;
-		var buttonY = 39; // Room for proper button
-		selectButton = new PixelButton(4, buttonY, buttonWidth, buttonHeight, "PICK", font, onSelectClicked);
+		var buttonY = 39;
+
+		selectButton = new FlxTypedButton<FlxBitmapText>(4, buttonY, onSelectClicked);
+		selectButton.loadGraphic("assets/images/button-pick.png", true, buttonWidth, buttonHeight);
+		selectButton.label = new FlxBitmapText(font);
+		selectButton.label.text = "PICK";
+		selectButton.label.color = FlxColor.WHITE;
+		// Center label on button (label position is relative to button, not absolute)
+		selectButton.label.offset.x = -Math.floor((buttonWidth - selectButton.label.width) / 2);
+		selectButton.label.offset.y = -Math.floor((buttonHeight - selectButton.label.height) / 2);
 		add(selectButton);
 	}
 
@@ -100,38 +109,53 @@ class CharacterCard extends FlxSpriteGroup
 
 	function createStatIcon(X:Float, Y:Float, iconType:Int, isBoosted:Bool, isWeakened:Bool):Void
 	{
-		// Create a small icon representing the stat type
-		// iconType: 0=ATK, 1=SPD, 2=CDN
-		var icon = new FlxSprite(X, Y);
-
-		// Placeholder colors (different for each stat type)
-		var iconColor = switch (iconType)
+		// Create colored background square
+		var iconBg = new FlxSprite(X, Y);
+		var bgColor = switch (iconType)
 		{
-			case 0: 0xffff4444; // Red for ATK
-			case 1: 0xff44ff44; // Green for SPD
-			case 2: 0xff4444ff; // Blue for CDN
+			case 0: 0xffff4444; // Red for Power
+			case 1: 0xffcc8800; // Orange for Agility (darker than yellow for better contrast)
+			case 2: 0xff44ff44; // Green for Luck
 			default: 0xff4a5a8a;
 		}
-		icon.makeGraphic(8, 8, iconColor);
-		add(icon);
+		iconBg.makeGraphic(8, 8, bgColor);
+		add(iconBg);
 
-		// Modifier symbol centered OVER the icon (overlapping, not above)
+		// Create white letter on top
+		// iconType: 0=ATK (P=Power), 1=SPD (A=Agility), 2=LCK (L=Luck)
+		var statLetter = switch (iconType)
+		{
+			case 0: "P"; // Power (ATK)
+			case 1: "A"; // Agility (SPD)
+			case 2: "L"; // Luck (LCK)
+			default: "?";
+		}
+		var statText = new FlxBitmapText(font);
+		statText.text = statLetter;
+		statText.color = 0xffffffff; // White letter
+		// Center the letter on the 8x8 background
+		statText.x = X + Math.floor((8 - statText.width) / 2);
+		statText.y = Y + Math.floor((8 - statText.height) / 2);
+		add(statText);
+
+		// Modifier sprite (up/down arrow) at bottom-right corner of background
+		// Must be added LAST to be visible on top
 		if (isBoosted || isWeakened)
 		{
-			var modifierText = new FlxBitmapText(font);
-			modifierText.text = isBoosted ? "+" : "-";
-			// modifierText.letterSpacing = 1;
-			// Center horizontally AND vertically over the 8x8 icon
-			modifierText.x = X + Math.floor((8 - modifierText.width) / 2);
-			modifierText.y = Y + Math.floor((8 - modifierText.height) / 2);
-
-			// Color the modifier
+			var modifierSprite = new FlxSprite(X + 8 - 3, Y + 8 - 3); // Position at bottom-right corner
+			modifierSprite.loadGraphic("assets/images/up-down.png", true, 3, 3); // 2 frames: 0=UP, 1=DOWN
+			modifierSprite.antialiasing = false; // Ensure pixel-perfect rendering
+			
 			if (isBoosted)
-				modifierText.color = 0xff2ecc71; // Green
-			else
-				modifierText.color = 0xffe74c3c; // Red
-
-			add(modifierText);
+			{
+				modifierSprite.animation.frameIndex = 0; // UP frame
+			}
+			else if (isWeakened)
+			{
+				modifierSprite.animation.frameIndex = 1; // DOWN frame
+			}
+			
+			add(modifierSprite);
 		}
 	}
 

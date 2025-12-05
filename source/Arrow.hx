@@ -8,34 +8,18 @@ class Arrow extends Weapon
 {
 	var baseSpeed:Float = 200;
 
-	public function new(Player:Player, Projectiles:FlxTypedGroup<Projectile>)
+	public function new(Owner:FlxSprite, Projectiles:FlxTypedGroup<Projectile>)
 	{
-		super(Player, Projectiles);
+		super(Owner, Projectiles);
 		cooldown = 0.5;
 		baseDamage = 10.0;
 		maxChargeTime = 1.0;
 	}
 
-	override function tap():Void
+	override function fire():Void
 	{
-		if (!canFire())
-			return;
-
-		fire(1.0);
-		cooldownTimer = cooldown * player.attackCooldown;
-	}
-
-	override function releaseCharge():Void
-	{
-		if (!isCharging)
-			return;
-
-		fire(getChargePowerMultiplier());
-		super.releaseCharge();
-	}
-
-	function fire(powerMultiplier:Float):Void
-	{
+		var powerMultiplier = 1.0 + getChargePercent();
+		
 		var arrow:ArrowProjectile = cast projectiles.getFirstAvailable(ArrowProjectile);
 		if (arrow == null)
 		{
@@ -43,15 +27,15 @@ class Arrow extends Weapon
 			projectiles.add(arrow);
 		}
 
-		arrow.setup(player.facingAngle * FlxAngle.TO_DEG, powerMultiplier);
-		arrow.reset(player.x + player.width / 2 - arrow.width / 2, player.y + player.height / 2 - arrow.height / 2);
-		arrow.damage = baseDamage * player.attackDamage * powerMultiplier;
+		var facingAngle = getOwnerFacingAngle();
+		arrow.setup(facingAngle * FlxAngle.TO_DEG, powerMultiplier);
+		arrow.reset(getOwnerX() + getOwnerWidth() / 2 - arrow.width / 2, getOwnerY() + getOwnerHeight() / 2 - arrow.height / 2);
+		arrow.damage = baseDamage * getOwnerAttackDamage() * powerMultiplier;
 		arrow.sticksToWalls = true;
-		arrow.sticksToEnemies = false; // Arrows don't stick to enemies anymore
 
 		var speed = baseSpeed * powerMultiplier;
-		arrow.velocity.x = Math.cos(player.facingAngle) * speed;
-		arrow.velocity.y = Math.sin(player.facingAngle) * speed;
+		arrow.velocity.x = Math.cos(facingAngle) * speed;
+		arrow.velocity.y = Math.sin(facingAngle) * speed;
 	}
 }
 

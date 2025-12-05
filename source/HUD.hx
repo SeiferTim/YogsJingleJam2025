@@ -128,7 +128,7 @@ class HUD extends FlxGroup
 
 	function updateWeaponCooldown():Void
 	{
-		var cooldownPercent = player.weapon.cooldownTimer / (player.weapon.cooldown * player.attackCooldown);
+		var cooldownPercent = player.weapon.cooldownTimer / (player.weapon.cooldown / (1.0 + player.moveSpeed * 0.5));
 		weaponCooldownIcon.updateCooldown(cooldownPercent);
 
 		// Show charge state with full charge detection

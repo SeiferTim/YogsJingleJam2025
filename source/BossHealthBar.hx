@@ -128,50 +128,28 @@ class BossHealthBar extends FlxGroup
 
 	public function showDamage(damage:Float):Void
 	{
-		// If already showing damage and alpha >= 0.33, add to accumulated damage
-		if (damageText.alpha >= 0.33)
-		{
-			damageAccumulated += damage;
-		}
-		else
-		{
-			// New damage display
-			damageAccumulated = damage;
-		}
-
-		// Update text
+		damageAccumulated = damageText.alpha >= 0.33 ? damageAccumulated + damage : damage;
 		damageText.text = Std.string(Math.round(damageAccumulated));
-
-		// Re-align to right
 		damageText.x = barX + barWidth - damageText.width;
 
-		// Cancel existing tween if any
 		if (damageTween != null)
-		{
 			damageTween.cancel();
-		}
-		// Pop to alpha 1, wait 0.5s, then fade out over 0.33s
+
 		damageText.alpha = 1.0;
-		damageTween = FlxTween.tween(damageText, {alpha: 0}, 0.33, {
-			startDelay: 0.5,
-			ease: FlxEase.quadOut
-		});
+		damageTween = FlxTween.tween(damageText, {alpha: 0}, 0.33, {startDelay: 0.5, ease: FlxEase.quadOut});
 	}
 
 	override function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
 
-		// Update white damage bar to follow health changes
 		if (boss.currentHealth < previousHealth)
 		{
 			previousHealth = boss.currentHealth;
 
-			// Update white damage bar tween
 			if (activeTween != null)
-			{
 				activeTween.cancel();
-			}
+
 			activeTween = FlxTween.tween(damageBar, {value: boss.currentHealth}, 0.5, {ease: FlxEase.quadOut, startDelay: 0.5});
 		}
 	}

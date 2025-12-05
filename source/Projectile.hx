@@ -6,8 +6,7 @@ class Projectile extends FlxSprite
 {
 	public var damage:Float = 1.0;
 	public var isStuck:Bool = false;
-	public var sticksToWalls:Bool = true; // New: control sticking behavior
-	public var sticksToEnemies:Bool = false; // New: control enemy sticking
+	public var sticksToWalls:Bool = true;
 
 	var stickTime:Float = 5;
 	var stickTimer:Float = 0;
@@ -59,6 +58,5 @@ class Projectile extends FlxSprite
 		lastX = x;
 		lastY = y;
 		sticksToWalls = true;
-		sticksToEnemies = false;
 	}
 }

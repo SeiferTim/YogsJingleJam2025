@@ -4,203 +4,224 @@ import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxPoint;
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
 
 /**
- * Ghost - Previous player character that comes back as an enemy
- * 
- * - Uses saved CharacterData (weapon, stats, level)
- * - Appears as semi-transparent (alpha 0.8)
- * - Simple AI: move toward player but keep distance, shoot on cooldown
- * - Drops XP orb on death
- * - Has shadow like player
+ * Ghost - Previous player character, pooled like Mayfly
+ * Spawns with fade-in animation at random position above arena midpoint
+ * Uses the same weapon they died with
  */
 class Ghost extends FlxSprite
 {
 	public var shadow:Shadow;
 	public var characterData:CharacterData;
+	public var currentHealth:Float = 10;
+	public var weapon:Weapon; // The ghost's weapon instance
 
-	// Health based on character data
-	public var maxHP:Int;
-	public var currentHP:Int;
-
-	// Combat stats from character data
-	var attackDamage:Float;
-	var moveSpeed:Float;
-	var attackCooldown:Float;
-
-	// AI behavior
-	var baseSpeed:Float = 40;
-	var optimalDistance:Float = 64; // Try to stay this far from player
-	var attackTimer:Float = 0;
-	var longAttackCooldown:Float = 3.0; // Longer cooldown than player
-
-	// Facing direction for aiming
-	var facingAngle:Float = 0;
-
-	// Reference to player for AI
+	// AI
 	var player:Player;
 	var projectiles:FlxTypedGroup<Projectile>;
+	var baseSpeed:Float = 40;
+	var optimalDistance:Float = 64;
+	var attackTimer:Float = 0;
+	var attackCooldown:Float = 3.0;
 
-	// Base arrow speed for firing
-	var arrowSpeed:Float = 200;
+	public var facingAngle:Float = 0;
 
-	public function new(X:Float, Y:Float, Data:CharacterData, Player:Player, Projectiles:FlxTypedGroup<Projectile>)
+	// Callback for when ghost is killed (used to spawn spirit orb)
+	public var onDeath:Ghost->Void;
+
+	public function new()
 	{
-		super(X, Y);
+		super();
+		loadGraphic("assets/images/players.png", true, 8, 8);
+		animation.frameIndex = 0;
+		antialiasing = false;
+		alpha = 0;
+		color = 0xBBBBDD; // Ghostly tint
+		kill();
+	}
 
+	public function spawn(Data:CharacterData, Player:Player, Projectiles:FlxTypedGroup<Projectile>):Void
+	{
 		characterData = Data;
 		player = Player;
 		projectiles = Projectiles;
 
-		// Copy stats from character data
-		maxHP = characterData.maxHP;
-		currentHP = maxHP;
-		attackDamage = characterData.attackDamage;
-		moveSpeed = characterData.moveSpeed;
-		attackCooldown = characterData.attackCooldown * longAttackCooldown; // Much longer cooldown
+		// Convert hearts to HP: 10 HP per heart (maxHP is number of hearts)
+		currentHealth = Data.maxHP * 10;
+		animation.frameIndex = Data.spriteFrame;
+		attackCooldown = 3.0 / (1.0 + Data.moveSpeed * 0.5);
 
-		// Load player sprite (same as player)
-		loadGraphic("assets/images/players.png", true, 8, 8);
-		animation.frameIndex = 0;
+		// Create weapon instance based on character's weapon type
+		weapon = switch (Data.weaponType)
+		{
+			case BOW: new Arrow(this, Projectiles);
+			case SWORD: new Sword(this, Projectiles);
+			case WAND: new Wand(this, Projectiles);
+			case HALBERD: new Halberd(this, Projectiles);
+		}
 
-		// Semi-transparent ghostly appearance
-		alpha = 0.8;
+		// Adjust optimal distance based on weapon type
+		optimalDistance = switch (Data.weaponType)
+		{
+			case BOW | WAND: 64; // Ranged weapons keep distance
+			case SWORD | HALBERD: 16; // Melee weapons get close
+		}
 
-		// TODO: Apply grayscale shader for ghostly effect
-		// For now, just tint slightly blue/gray
-		color = 0xBBBBDD;
+		// Spawn above arena midpoint
+		var arenaHeight = FlxG.worldBounds.height;
+		var upperArea = FlxG.worldBounds.top + (arenaHeight * 0.4);
+		var spawnX = FlxG.random.float(FlxG.worldBounds.left + 16, FlxG.worldBounds.right - 24);
+		var spawnY = FlxG.random.float(FlxG.worldBounds.top + 16, upperArea);
+
+		reset(spawnX, spawnY);
+
+		if (shadow == null)
+		{
+			shadow = new Shadow(this, 1.2, 0.25, 0, height / 2);
+			PlayState.current.shadowLayer.add(shadow);
+		}
+		else
+		{
+			shadow.revive();
+		}
+
+		// Fade in animation
+		alpha = 0;
+		FlxTween.tween(this, {alpha: 0.8}, 0.5, {ease: FlxEase.quadOut});
 	}
 
 	override function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
 
-		if (!alive || player == null)
+		if (player == null || !player.alive)
 			return;
 
-		// Update AI
+		if (weapon != null)
+			weapon.update(elapsed);
+
 		updateAI(elapsed);
 
-		// Update attack timer
 		if (attackTimer > 0)
 			attackTimer -= elapsed;
 	}
 
 	function updateAI(elapsed:Float):Void
 	{
-		// Calculate distance to player
 		var dx = player.x - x;
 		var dy = player.y - y;
-		var distToPlayer = Math.sqrt(dx * dx + dy * dy);
+		var dist = Math.sqrt(dx * dx + dy * dy);
 
-		// Calculate facing angle toward player
 		facingAngle = Math.atan2(dy, dx);
 
-		// Movement AI: maintain optimal distance
-		if (distToPlayer > optimalDistance + 16)
+		// Maintain optimal distance
+		if (dist > optimalDistance + 16)
 		{
-			// Too far, move closer
-			velocity.x = Math.cos(facingAngle) * baseSpeed * moveSpeed;
-			velocity.y = Math.sin(facingAngle) * baseSpeed * moveSpeed;
+			velocity.set(Math.cos(facingAngle) * baseSpeed * characterData.moveSpeed, Math.sin(facingAngle) * baseSpeed * characterData.moveSpeed);
 		}
-		else if (distToPlayer < optimalDistance - 16)
+		else if (dist < optimalDistance - 16)
 		{
-			// Too close, back away
-			velocity.x = -Math.cos(facingAngle) * baseSpeed * moveSpeed;
-			velocity.y = -Math.sin(facingAngle) * baseSpeed * moveSpeed;
+			velocity.set(-Math.cos(facingAngle) * baseSpeed * characterData.moveSpeed, -Math.sin(facingAngle) * baseSpeed * characterData.moveSpeed);
 		}
 		else
 		{
-			// In optimal range, slow down
 			velocity.x *= 0.8;
 			velocity.y *= 0.8;
 		}
 
-		// Constrain to world bounds
-		if (x < FlxG.worldBounds.left + 8)
-			x = FlxG.worldBounds.left + 8;
-		if (x + width > FlxG.worldBounds.right - 8)
-			x = FlxG.worldBounds.right - 8;
-		if (y < FlxG.worldBounds.top + 8)
-			y = FlxG.worldBounds.top + 8;
-		if (y + height > FlxG.worldBounds.bottom - 8)
-			y = FlxG.worldBounds.bottom - 8;
+		// Constrain to bounds
+		x = Math.max(FlxG.worldBounds.left + 8, Math.min(FlxG.worldBounds.right - width - 8, x));
+		y = Math.max(FlxG.worldBounds.top + 8, Math.min(FlxG.worldBounds.bottom - height - 8, y));
 
-		// Attack on cooldown if in range
-		if (attackTimer <= 0 && distToPlayer < 128)
+		// Attack using weapon
+		if (attackTimer <= 0 && dist < 128)
 		{
-			tryAttack();
+			useWeapon();
+			attackTimer = attackCooldown;
 		}
 	}
 
-	function tryAttack():Void
+	function useWeapon():Void
 	{
-		// Fire a simple projectile toward player based on weapon type
-		// TODO: Different projectile types per weapon (for now all use arrows)
-		var arrow = new Projectile();
-		arrow.loadRotatedGraphic("assets/images/arrow.png", 32, -1, false, true);
-		arrow.antialiasing = false;
+		if (weapon == null)
+			return;
 
-		// Position at ghost center
-		arrow.reset(x + width / 2 - arrow.width / 2, y + height / 2 - arrow.height / 2);
-		arrow.damage = attackDamage;
-		arrow.angle = facingAngle * (180 / Math.PI); // Convert radians to degrees
-
-		// Set velocity toward player
-		arrow.velocity.x = Math.cos(facingAngle) * arrowSpeed;
-		arrow.velocity.y = Math.sin(facingAngle) * arrowSpeed;
-
-		projectiles.add(arrow);
-
-		// Reset cooldown
-		attackTimer = attackCooldown;
+		// For ranged weapons (bow/wand): start charge and immediately release
+		if (Std.isOfType(weapon, Arrow) || Std.isOfType(weapon, Wand))
+		{
+			weapon.startCharge();
+			weapon.releaseCharge();
+		}
+		// For melee weapons (sword/halberd): trigger attack
+		else if (Std.isOfType(weapon, Sword))
+		{
+			var sword:Sword = cast weapon;
+			sword.sweep();
+		}
+		else if (Std.isOfType(weapon, Halberd))
+		{
+			var halberd:Halberd = cast weapon;
+			halberd.jab();
+		}
 	}
 
 	public function takeDamage(damage:Float):Void
 	{
-		currentHP -= Std.int(damage);
-		if (currentHP < 0)
-			currentHP = 0;
-
+		currentHealth -= damage;
+		
 		// Flash effect
+		FlxTween.cancelTweensOf(this, ["color"]);
 		color = FlxColor.RED;
-		haxe.Timer.delay(function()
-		{
-			color = 0xBBBBDD; // Return to ghostly tint
-		}, 100);
+		FlxTween.tween(this, {color: 0xBBBBDD}, 0.1);
 
-		if (currentHP <= 0)
+		if (currentHealth <= 0)
 		{
-			onDeath();
+			// TODO: Spawn XP orb in PlayState
+			kill();
 		}
-	}
-
-	function onDeath():Void
-	{
-		// TODO: Spawn XP orb at shadow position
-		// Will be handled by PlayState
-
-		// Kill ghost
-		kill();
 	}
 
 	override function kill():Void
 	{
-		super.kill();
+		// Trigger death callback FIRST (spawns soul orb)
+		if (onDeath != null)
+			onDeath(this);
 
-		if (shadow != null)
+		// Switch to death frame (living frame + 8)
+		var deathFrame = characterData.spriteFrame + 8;
+		
+		// Check if death frame exists (players.png should have 16 frames: 0-7 living, 8-15 dead)
+		if (deathFrame < 16)
 		{
-			shadow.kill();
+			animation.frameIndex = deathFrame;
+			
+			// Fade out after showing death frame
+			FlxTween.tween(this, {alpha: 0}, 0.5, {
+				startDelay: 0.3, // Show death frame briefly
+				onComplete: function(t:FlxTween)
+				{
+					actuallyKill();
+				}
+			});
+		}
+		else
+		{
+			// No death frame available, kill immediately
+			trace("Death frame not found for ghost, using fallback");
+			actuallyKill();
 		}
 	}
 
-	override function destroy():Void
+	function actuallyKill():Void
 	{
-		player = null;
-		projectiles = null;
-		characterData = null;
+		super.kill();
+		FlxTween.cancelTweensOf(this);
 
-		super.destroy();
+		if (shadow != null)
+			shadow.kill();
 	}
 }

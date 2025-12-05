@@ -22,10 +22,12 @@ class CharacterData
 	public var maxHP:Int;
 
 	// Final calculated stats (with modifiers and level bonuses)
-	// These match Player.hx stats
 	public var attackDamage:Float;
 	public var moveSpeed:Float;
-	public var attackCooldown:Float;
+	public var luck:Float;
+
+	// Which phase the character died in (0 = before Phase 1, 1 = Phase 1, 2 = Phase 2, etc.)
+	public var deathPhase:Int;
 
 	// XP curve: level * 100 XP needed for next level
 	public static inline var XP_PER_LEVEL:Int = 100;
@@ -41,7 +43,7 @@ class CharacterData
 	// Base stat values
 	public static inline var BASE_DAMAGE:Float = 1.0;
 	public static inline var BASE_SPEED:Float = 1.0;
-	public static inline var BASE_COOLDOWN:Float = 1.0;
+	public static inline var BASE_LUCK:Float = 1.0;
 	public static inline var BASE_HP:Int = 3; // 3 hearts to start
 
 	public function new(Name:String, Weapon:WeaponType, BestStat:StatType, WorstStat:StatType, SpriteFrame:Int = 0)
@@ -56,6 +58,7 @@ class CharacterData
 		level = 1;
 		xp = 0;
 		maxHP = BASE_HP;
+		deathPhase = 0; // Default to 0 (alive)
 
 		recalculateStats();
 	}
@@ -90,19 +93,18 @@ class CharacterData
 		// Start with base stats
 		attackDamage = BASE_DAMAGE;
 		moveSpeed = BASE_SPEED;
-		attackCooldown = BASE_COOLDOWN;
+		luck = BASE_LUCK;
 
 		// Apply best/worst stat modifiers
 		attackDamage = applyStatModifier(attackDamage, StatType.DAMAGE);
 		moveSpeed = applyStatModifier(moveSpeed, StatType.SPEED);
-		attackCooldown = applyStatModifier(attackCooldown, StatType.COOLDOWN);
+		luck = applyStatModifier(luck, StatType.LUCK);
 
 		// Apply level bonuses (+10% per level after 1)
 		var levelMultiplier = 1.0 + (level - 1) * STAT_INCREASE_PER_LEVEL;
 		attackDamage *= levelMultiplier;
 		moveSpeed *= levelMultiplier;
-		// Note: Lower cooldown is better, so we DIVIDE instead of multiply for level bonus
-		attackCooldown /= levelMultiplier;
+		luck *= levelMultiplier;
 
 		// Bonus hearts every N levels
 		var bonusHearts = Math.floor((level - 1) / HEALTH_EVERY_N_LEVELS);
@@ -114,14 +116,7 @@ class CharacterData
 		if (stat == bestStat)
 			return value * (1.0 + BEST_STAT_BONUS);
 		else if (stat == worstStat)
-		{
-			// For cooldown, worst means SLOWER (higher number)
-			// For damage/speed, worst means LOWER (lower number)
-			if (stat == StatType.COOLDOWN)
-				return value * (1.0 + WORST_STAT_PENALTY); // Increases cooldown
-			else
-				return value * (1.0 - WORST_STAT_PENALTY); // Decreases damage/speed
-		}
+			return value * (1.0 - WORST_STAT_PENALTY);
 		return value;
 	}
 
@@ -166,7 +161,7 @@ class CharacterData
 		var weapon = weapons[Std.random(weapons.length)];
 
 		// Pick random best and worst stats (must be different)
-		var allStats = [StatType.DAMAGE, StatType.SPEED, StatType.COOLDOWN];
+		var allStats = [StatType.DAMAGE, StatType.SPEED, StatType.LUCK];
 		var bestStat = allStats[Std.random(allStats.length)];
 
 		// Pick worst stat (different from best)
@@ -201,7 +196,8 @@ class CharacterData
 			worstStat: worstStat,
 			level: level,
 			xp: xp,
-			maxHP: maxHP
+			maxHP: maxHP,
+			deathPhase: deathPhase
 		};
 	}
 
@@ -215,6 +211,7 @@ class CharacterData
 		char.level = data.level;
 		char.xp = data.xp;
 		char.maxHP = data.maxHP;
+		char.deathPhase = data.deathPhase != null ? data.deathPhase : 0;
 		char.recalculateStats();
 
 		return char;
@@ -229,6 +226,7 @@ class CharacterData
 		copy.level = level;
 		copy.xp = xp;
 		copy.maxHP = maxHP;
+		copy.deathPhase = deathPhase;
 		copy.recalculateStats();
 		return copy;
 	}
@@ -246,5 +244,5 @@ enum StatType
 {
 	DAMAGE;
 	SPEED;
-	COOLDOWN;
+	LUCK;
 }
