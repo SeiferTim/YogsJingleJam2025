@@ -12,8 +12,12 @@ import flixel.util.FlxSpriteUtil;
 
 class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 {
-	public var maxHealth:Float = 1000;
-	public var currentHealth:Float = 1000;
+	// Boss logic helper (handles health, damage, movement)
+	var logic:BossLogic;
+
+	// IBoss interface properties
+	public var maxHealth:Float;
+	public var currentHealth:Float;
 	public var bossName:String = "Resh'Lar, She Who Molts the First Shell";
 	public var contactDamage:Float = 1.0;
 	public var width:Float = 40;
@@ -23,9 +27,6 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public var isBurning:Bool = false;
 	public var burnTimer:Float = 0;
 	public var burnDamagePerSecond:Float = 0;
-
-	// Instance-based damage cooldown tracking
-	var damageTracker:DamageTracker = new DamageTracker(1000); // 1 second cooldown
 
 	public var headSegment:BossSegment;
 	var foreSegment:BossSegment;
@@ -72,6 +73,11 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public function new(X:Float, Y:Float, Target:Player, ?AttackCallback:Void->Void, ?SpitProjectiles:FlxTypedGroup<Projectile>, ?Plasmas:FlxTypedGroup<Plasma>)
 	{
 		super();
+
+		// Initialize boss logic (1000 HP, 1 second damage cooldown)
+		logic = new BossLogic(1000, 1000);
+		maxHealth = logic.maxHealth;
+		currentHealth = logic.currentHealth;
 
 		headX = X;
 		headY = Y;
@@ -243,16 +249,10 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	{
 		wiggleTime += elapsed * wiggleFrequency;
 
-		var dx = x - headX;
-		var dy = y - headY;
-		var dist = Math.sqrt(dx * dx + dy * dy);
-
-		if (dist > 1)
-		{
-			var angle = Math.atan2(dy, dx);
-			headX += Math.cos(angle) * speed * elapsed;
-			headY += Math.sin(angle) * speed * elapsed;
-		}
+		// Delegate to BossLogic for movement calculation
+		var pos = logic.moveTowards(headX, headY, x, y, speed, elapsed);
+		headX = pos.newX;
+		headY = pos.newY;
 
 		updateSegments();
 		updateMouthAndPincers();
@@ -316,8 +316,8 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		{
 			return;
 		}
-		// Update damage cooldown tracking
-		damageTracker.update();
+		// Update boss logic (damage cooldowns)
+		logic.update();
 		
 		// Apply burn damage
 		if (isBurning)
@@ -740,15 +740,15 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 
 	public function takeDamage(damage:Float, ?damageInstanceId:String):Void
 	{
-		// Check cooldown using DamageTracker
-		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
+		// Delegate to BossLogic - handles cooldown check and damage application
+		if (!logic.takeDamage(damage, damageInstanceId))
 		{
 			return; // Still on cooldown for this specific instance
 		}
 		
-		currentHealth -= damage;
-		if (currentHealth < 0)
-			currentHealth = 0;
+		// Sync health from logic to interface properties
+		currentHealth = logic.currentHealth;
+		
 		// Notify health bar
 		PlayState.current.hud.bossHealthBar.showDamage(damage);
 
@@ -762,10 +762,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 			}
 		});
 
-		// Record hit AFTER applying damage
-		damageTracker.recordHit(damageInstanceId);
-
-		if (currentHealth <= 0)
+		if (logic.isDead())
 			die();
 	}
 	public function applyBurn(duration:Float, damagePerSecond:Float):Void

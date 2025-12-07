@@ -1480,9 +1480,25 @@ class PlayState extends FlxState
 		}
 		else if (transitionTimer > 2.5 && transitionTimer <= 5.0)
 		{
+			// Boss crawls to cocoon position, camera follows
 			boss.moveTo(cocoonCenterX, bossTargetY, 40, elapsed);
 			var headPos = boss.getHeadPosition();
 			cameraTarget.setPosition(headPos.x, headPos.y);
+			// Meanwhile, player walks to starting position
+			var startX = (map.width / 2) - 4;
+			var startY = map.height - 32;
+			var walkSpeed = 50; // Slow walk speed during cinematic
+
+			var dx = startX - player.x;
+			var dy = startY - player.y;
+			var dist = Math.sqrt(dx * dx + dy * dy);
+
+			if (dist > 1)
+			{
+				var angle = Math.atan2(dy, dx);
+				player.x += Math.cos(angle) * walkSpeed * elapsed;
+				player.y += Math.sin(angle) * walkSpeed * elapsed;
+			}
 		}
 		else if (transitionTimer > 5.0 && transitionTimer <= 6.5)
 		{
@@ -1543,11 +1559,7 @@ class PlayState extends FlxState
 		ghostsDefeatedTimer = 0;
 		Ghost.resetSpawnCounter(); // Reset ghost spawn animation stagger
 
-		// Move player back to starting position
-		var startX = (map.width / 2) - 4;
-		var startY = map.height - 32;
-		player.x = startX;
-		player.y = startY;
+		// Player should already be at starting position from walking during death sequence
 		player.velocity.set(0, 0);
 		player.reticle.visible = false; // Hide during camera pan
 
@@ -1649,17 +1661,17 @@ class PlayState extends FlxState
 			return;
 		}
 
-		// Track when all ghosts are defeated
+		// Track when all ghosts are defeated (from batches)
 		if (ghostsAllDead)
 		{
 			ghostsDefeatedTimer += elapsed;
 			
-			// After 3 seconds OR 60 seconds total (whichever is longer), transition
-			if (ghostsDefeatedTimer >= 3.0 || transitionTimer >= 60.0)
-		{
-				trace("Phase 1.5 complete - starting Phase 2 hatch");
-			startPhase2HatchSequence();
-		}
+			// Transition 3 seconds after all ghosts defeated
+			if (ghostsDefeatedTimer >= 3.0)
+			{
+				trace("Phase 1.5 complete (all ghosts defeated) - starting Phase 2 hatch");
+				startPhase2HatchSequence();
+			}
 			return;
 		}
 
@@ -1669,6 +1681,14 @@ class PlayState extends FlxState
 			trace("All Phase 1.5 ghosts defeated! Waiting 3 seconds before transition...");
 			ghostsAllDead = true;
 			ghostsDefeatedTimer = 0;
+			return;
+		}
+
+		// If no ghosts to fight, wait 30 seconds as breather/healing time
+		if (ghostBatches.length == 0 && transitionTimer >= 30.0)
+		{
+			trace("Phase 1.5 complete (30s breather, no ghosts) - starting Phase 2 hatch");
+			startPhase2HatchSequence();
 		}
 	}
 

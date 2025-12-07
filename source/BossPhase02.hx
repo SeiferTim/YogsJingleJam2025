@@ -44,13 +44,13 @@ class BossPhase02 extends FlxSprite implements IBoss
 	// Shadows for each part
 	var shadows:Array<Shadow>;
 
-	// Stats (IBoss interface)
-	public var maxHealth:Float = 300;
-	public var currentHealth:Float = 300;
-	public var bossName:String = "Reth'kira, the Tooth which Cuts the Veil";
+	// Boss logic helper (handles health, damage, movement)
+	var logic:BossLogic;
 
-	// Damage cooldown tracking
-	var damageTracker:DamageTracker = new DamageTracker(1000); // 1 second cooldown
+	// IBoss interface properties
+	public var maxHealth:Float;
+	public var currentHealth:Float;
+	public var bossName:String = "Reth'kira, the Tooth which Cuts the Veil";
 
 	var moveSpeed:Float = 20;
 	public var isActive:Bool = false;
@@ -137,6 +137,11 @@ class BossPhase02 extends FlxSprite implements IBoss
 	public function new(X:Float, Y:Float, Target:Player, ?SpitProjectiles:FlxTypedGroup<Projectile>, ?Plasmas:FlxTypedGroup<Plasma>)
 	{
 		super(X, Y);
+
+		// Initialize boss logic (300 HP, 1 second damage cooldown)
+		logic = new BossLogic(300, 1000);
+		maxHealth = logic.maxHealth;
+		currentHealth = logic.currentHealth;
 
 		player = Target;
 		spitProjectiles = SpitProjectiles;
@@ -357,8 +362,8 @@ class BossPhase02 extends FlxSprite implements IBoss
 		if (!isActive)
 			return;
 
-		// Update damage cooldown tracking
-		damageTracker.update();
+		// Update boss logic (damage cooldowns)
+		logic.update();
 
 		// Update attack state machine
 		updateAttackState(elapsed);
@@ -1264,15 +1269,14 @@ class BossPhase02 extends FlxSprite implements IBoss
 		if (!isActive)
 			return;
 
-		// Check cooldown using DamageTracker
-		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
+		// Delegate to BossLogic - handles cooldown check and damage application
+		if (!logic.takeDamage(damage, damageInstanceId))
 		{
 			return; // Still on cooldown for this specific instance
 		}
 
-		currentHealth -= damage;
-		if (currentHealth < 0)
-			currentHealth = 0;
+		// Sync health from logic to interface properties
+		currentHealth = logic.currentHealth;
 
 		// Flash effect on visible body parts
 		head.color = FlxColor.RED;
@@ -1288,10 +1292,7 @@ class BossPhase02 extends FlxSprite implements IBoss
 			abdomen.color = FlxColor.WHITE;
 		});
 
-		// Record hit AFTER applying damage
-		damageTracker.recordHit(damageInstanceId);
-
-		if (currentHealth <= 0)
+		if (logic.isDead())
 		{
 			onDefeated();
 		}
@@ -1355,10 +1356,10 @@ class BossPhase02 extends FlxSprite implements IBoss
 
 	public function moveTo(targetX:Float, targetY:Float, speed:Float, elapsed:Float):Void
 	{
-		// Simple lerp movement
-		var lerpSpeed = speed * elapsed;
-		x += (targetX - x) * lerpSpeed;
-		y += (targetY - y) * lerpSpeed;
+		// Delegate to BossLogic for movement calculation
+		var pos = logic.moveTowards(x, y, targetX, targetY, speed, elapsed);
+		x = pos.newX;
+		y = pos.newY;
 
 		updatePartPositions();
 	}
