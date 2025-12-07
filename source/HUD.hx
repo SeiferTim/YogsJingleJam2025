@@ -18,6 +18,8 @@ class HUD extends FlxGroup
 	var hearts:Array<FlxSprite>;
 	public var bossHealthBar:BossHealthBar;
 	var characterNameText:FlxBitmapText;
+	var lvIcon:FlxSprite; // "lv" graphic
+	var levelValueText:FlxBitmapText; // Player level number
 
 	var player:Player;
 	var boss:IBoss;
@@ -89,6 +91,21 @@ class HUD extends FlxGroup
 			characterNameText.y = currentY;
 			add(characterNameText);
 
+			// Level display: lv.png icon + level number
+			lvIcon = new FlxSprite();
+			lvIcon.loadGraphic("assets/images/lv.png");
+			lvIcon.scrollFactor.set(0, 0);
+			lvIcon.x = characterNameText.x + characterNameText.width + 4; // 4px gap after name
+			lvIcon.y = currentY + 1;
+			add(lvIcon);
+
+			levelValueText = new FlxBitmapText(font);
+			levelValueText.text = Std.string(player.level);
+			levelValueText.scrollFactor.set(0, 0);
+			levelValueText.x = lvIcon.x + lvIcon.width; // No gap between icon and number
+			levelValueText.y = currentY; // Keep at original position
+			add(levelValueText);
+
 			currentY += Std.int(characterNameText.height) + 2; // Move down with 2px gap
 		}
 
@@ -142,6 +159,11 @@ class HUD extends FlxGroup
 		{
 			// Show full heart if we have HP, empty heart if we don't
 			hearts[i].animation.play(i < player.currentHP ? "full" : "empty");
+		}
+		// Update level display
+		if (levelValueText != null)
+		{
+			levelValueText.text = Std.string(player.level);
 		}
 	}
 

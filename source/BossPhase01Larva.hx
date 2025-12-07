@@ -24,6 +24,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public var burnTimer:Float = 0;
 	public var burnDamagePerSecond:Float = 0;
 
+	// Instance-based damage cooldown tracking
+	var damageTracker:DamageTracker = new DamageTracker(1000); // 1 second cooldown
+
 	public var headSegment:BossSegment;
 	var foreSegment:BossSegment;
 	var backSegment:BossSegment;
@@ -278,7 +281,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		shadowLayer.add(foreShadow);
 		shadows.push(foreShadow);
 
-		var headShadow = new Shadow(headSegment.sprite, 1.1, 1.0, 0, 4);
+		var headShadow = new Shadow(headSegment.sprite, 0.8, 0.8, 0, 4);
 		shadowLayer.add(headShadow);
 		shadows.push(headShadow);
 		// No shadows for mouth or pincers
@@ -313,6 +316,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		{
 			return;
 		}
+		// Update damage cooldown tracking
+		damageTracker.update();
+		
 		// Apply burn damage
 		if (isBurning)
 		{
@@ -732,8 +738,14 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		targetY = arenaCenterY + FlxG.random.float(-30, 30);
 	}
 
-	public function takeDamage(damage:Float):Void
+	public function takeDamage(damage:Float, ?damageInstanceId:String):Void
 	{
+		// Check cooldown using DamageTracker
+		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
+		{
+			return; // Still on cooldown for this specific instance
+		}
+		
 		currentHealth -= damage;
 		if (currentHealth < 0)
 			currentHealth = 0;
@@ -750,6 +762,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 			}
 		});
 
+		// Record hit AFTER applying damage
+		damageTracker.recordHit(damageInstanceId);
+
 		if (currentHealth <= 0)
 			die();
 	}
@@ -765,6 +780,45 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		alive = false;
 		// NOTE: Keep exists = true so PlayState can detect death and trigger phase transition
 		// PlayState will handle cleanup and phase changes
+	}
+
+	public function checkOverlap(sprite:FlxSprite, useRotatedCollision:Bool = false, usePixelPerfect:Bool = false):Bool
+	{
+		// Iterate through all segments and check collision
+		var hasOverlap = false;
+		forEachAlive(function(segment:FlxSprite)
+		{
+			if (hasOverlap)
+				return; // Already found a hit
+
+			// First check: AABB or rotated collision
+			var basicOverlap = false;
+			if (useRotatedCollision && Std.isOfType(sprite, RotatedSprite))
+			{
+				// Use RotatedSprite's overlaps method for rotated collision
+				basicOverlap = cast(sprite, RotatedSprite).overlaps(segment);
+			}
+			else
+			{
+				// Standard AABB check
+				basicOverlap = sprite.overlaps(segment);
+			}
+
+			// Second check: pixel-perfect if requested
+			if (basicOverlap)
+			{
+				if (usePixelPerfect)
+				{
+					hasOverlap = FlxG.pixelPerfectOverlap(sprite, segment);
+				}
+				else
+				{
+					hasOverlap = true;
+				}
+			}
+		});
+
+		return hasOverlap;
 	}
 
 	function get_x():Float

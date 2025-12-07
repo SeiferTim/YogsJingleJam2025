@@ -57,7 +57,7 @@ class ShadowLayer extends FlxSprite
 					new openfl.geom.Point(shadowX, shadowY),
 					null,
 					null,
-					true // Use alpha
+				false // Use alpha
 				);
 			}
 		});

@@ -30,6 +30,7 @@ class PlayState extends FlxState
 
 	public var mayflies:FlxTypedGroup<Mayfly>; // Made public for MagicBallProjectile.findNearestEnemy()
 	public var ghosts:FlxTypedGroup<Ghost>; // Made public for MagicBallProjectile.findNearestEnemy()
+	var whiteGhosts:FlxTypedGroup<FlxSprite>; // White sprite overlay for ghost spawn animation
 	var hearts:FlxTypedGroup<HeartPickup>;
 	var spiritOrbs:FlxTypedGroup<SpiritOrb>;
 	var timePulseRocks:FlxTypedGroup<FlxSprite>; // Rocks spawned during boss2 Time Pulse attack
@@ -91,6 +92,7 @@ class PlayState extends FlxState
 		plasmas = new FlxTypedGroup<Plasma>(5);
 		mayflies = new FlxTypedGroup<Mayfly>(5);
 		ghosts = new FlxTypedGroup<Ghost>(10);
+		whiteGhosts = new FlxTypedGroup<FlxSprite>(10); // For spawn animation
 		hearts = new FlxTypedGroup<HeartPickup>(10);
 		spiritOrbs = new FlxTypedGroup<SpiritOrb>(10);
 		timePulseRocks = new FlxTypedGroup<FlxSprite>(10);
@@ -159,6 +161,10 @@ class PlayState extends FlxState
 		player.shadow = new Shadow(player, 1.2, 0.25, 0, player.height / 2);
 		shadowLayer.add(player.shadow);
 
+		// Add player reticle and dizzy sprite to scene
+		add(player.reticle);
+		add(player.dizzySprite);
+
 		// Boss spawns at center of egg sprite
 		// Egg is 100px tall with center.y at 57px
 		var bossSpawnX = eggSprite.x + eggSprite.width / 2;
@@ -175,6 +181,7 @@ class PlayState extends FlxState
 		// Add mayflies and hearts before projectiles
 		add(mayflies);
 		add(ghosts);
+		add(whiteGhosts); // White ghost spawn animation sprites
 
 		// Add projectiles AFTER player and boss so they render on top
 		add(projectiles);
@@ -500,12 +507,18 @@ class PlayState extends FlxState
 		currentBatchIndex = 0;
 		currentBatchSpawned = false;
 
-		// Queue up first batch for staggered spawning
-		if (ghostBatches.length > 0)
+		// Pan to player BEFORE spawning ghosts (so ghosts spawn around player in bottom half)
+		cinematics.panTo(player.x, player.y, 1.0, 1.0, function()
 		{
-			ghostSpawnQueue = ghostBatches[0].copy();
-			ghostSpawnTimer = 0;
-		}
+			trace("Phase 0.5: Camera on player, starting ghost spawns");
+			
+			// Queue up first batch for staggered spawning
+			if (ghostBatches.length > 0)
+			{
+				ghostSpawnQueue = ghostBatches[0].copy();
+				ghostSpawnTimer = 0;
+			}
+		});
 
 		trace("Phase 0.5: Spawning "
 			+ ghostsToSpawn.length
@@ -543,30 +556,35 @@ class PlayState extends FlxState
 		if (!currentBatchSpawned && ghostSpawnQueue.length == 0)
 		{
 			currentBatchSpawned = true;
-			trace("Batch " + (currentBatchIndex + 1) + " fully spawned - waiting for defeat");
+			trace("Batch " + (currentBatchIndex + 1) + " fully spawned - waiting for white ghost animation");
+			return;
+		}
 
-			// Pan to player if this was first batch
-			if (currentBatchIndex == 0)
+		// Wait for white ghost spawn animations to complete before starting fight
+		if (currentBatchSpawned && whiteGhosts.countLiving() > 0)
+		{
+			// Still animating, wait...
+			return;
+		}
+
+		// All white ghosts done animating - start fight immediately (no pan, already on player)
+		if (currentBatchSpawned && whiteGhosts.countLiving() == 0 && !player.active)
+		{
+			trace("Phase 0.5 batch " + (currentBatchIndex + 1) + " fight started!");
+			FlxG.camera.follow(player, LOCKON);
+			player.active = true;
+			player.reticle.visible = true;
+			// Activate all ghosts now
+			ghosts.forEachAlive(function(ghost:Ghost)
 			{
-				cinematics.panTo(player.x, player.y, 1.0, 1.0, function()
-				{
-					trace("Phase 0.5 fight started!");
-					FlxG.camera.follow(player, LOCKON);
-					player.active = true;
-					player.reticle.visible = true;
-					// Activate all ghosts now that camera is on player
-					ghosts.forEachAlive(function(ghost:Ghost)
-					{
-						ghost.active = true;
-					});
-				});
-			}
+				ghost.active = true;
+			});
 			return;
 		}
 
 		// Check if current batch is defeated
 		var currentGhostCount = ghosts.countLiving();
-		if (currentBatchSpawned && currentGhostCount == 0)
+		if (currentBatchSpawned && currentGhostCount == 0 && !ghostsAllDead)
 		{
 			// All ghosts in current batch defeated
 			currentBatchIndex++;
@@ -583,13 +601,10 @@ class PlayState extends FlxState
 			else
 			{
 				// All batches completed
-				if (!ghostsAllDead)
-				{
-					trace("=== ALL GHOST BATCHES DEFEATED! ===");
-					trace("Starting 3-second timer before transition...");
-					ghostsAllDead = true;
-					ghostsDefeatedTimer = 0;
-				}
+				trace("=== ALL GHOST BATCHES DEFEATED! ===");
+				trace("Starting 3-second timer before transition...");
+				ghostsAllDead = true;
+				ghostsDefeatedTimer = 0;
 			}
 			return;
 		}
@@ -652,6 +667,11 @@ class PlayState extends FlxState
 		trace("=== ENDING PHASE 0.5 GHOSTS ===");
 		trace("Transitioning to egg hatch sequence...");
 
+		// IMMEDIATELY switch to INTRO state to prevent updatePhase0_5Ghosts from running during transition
+		gameState = INTRO;
+		introState = EGG_PAUSE_1; // Will start egg hatch after cinematics complete
+		introTimer = 0;
+
 		// Stop player control and hide reticle
 		player.active = false;
 		player.velocity.set(0, 0);
@@ -667,57 +687,134 @@ class PlayState extends FlxState
 		// Move player with 1 second start delay, then pan to egg with another 1 second delay
 		cinematics.followTween(player, startX, startY, moveTime, 1.0, function()
 		{
-
+			trace("Player reached position, now panning to egg...");
 			// Pan camera to egg (with 1 second delay after player arrives)
 			cinematics.panToSprite(eggSprite, 1.0, 1.0, function()
 			{
-				trace("Ghosts defeated - continuing with egg hatch");
-				// Continue intro from EGG_PAUSE_1 (egg will now hatch)
-				gameState = INTRO;
-				introState = EGG_PAUSE_1;
+				trace("Pan to egg complete - egg hatch will now proceed");
+				// introState is already EGG_PAUSE_1, just reset timer to trigger hatch
 				introTimer = 0;
 			});
 		});
 	}
 	function spawnSingleGhost(charData:CharacterData):Void
 	{
-		var ghost:Ghost = ghosts.getFirstAvailable();
-		if (ghost == null)
-		{
-			ghost = new Ghost();
-			ghosts.add(ghost);
-		}
-		// Pass egg center position to avoid spawning on egg
+		// Get ghost spawn position first (but don't activate ghost yet)
 		var eggCenterX = eggSprite.x + eggSprite.width / 2;
-		var eggCenterY = eggSprite.y + 57; // Egg center.y is at 57px
-		ghost.spawn(charData, player, bossProjectiles, eggCenterX, eggCenterY);
+		var eggCenterY = eggSprite.y + 57;
 
-		// Make ghost inactive and face center until all are spawned
-		ghost.active = false;
-		var centerX = map.width / 2;
-		var centerY = map.height / 2;
-		ghost.facingAngle = Math.atan2(centerY - ghost.y, centerX - ghost.x);
+		// Spawn in BOTTOM half of arena (below egg) with buffer around player
+		var spawnX:Float;
+		var spawnY:Float;
+		var attempts = 0;
+		var maxAttempts = 50;
 
-		// Set death callback to spawn spirit orb at ghost's shadow position
-		ghost.onDeath = function(g:Ghost)
+		// Get player position for buffer check
+		var playerCenterX = player.x + player.width / 2;
+		var playerCenterY = player.y + player.height / 2;
+
+		do
 		{
-			var orbX = g.x + g.width / 2;
-			var orbY = g.y + g.height; // At the bottom (where shadow is)
-			spawnSpiritOrb(orbX, orbY, g.characterData.level); // Pass ghost's level
-		};
-
-		// Add ghost weapon hitboxes to scene (for melee weapons)
-		if (Std.isOfType(ghost.weapon, Sword))
-		{
-			var sword:Sword = cast ghost.weapon;
-			add(sword.getSlashHitbox());
-			add(sword.getSpinHitbox());
+			spawnX = FlxG.random.float(16, map.width - 24);
+			spawnY = FlxG.random.float(map.height / 2 + 16, map.height - 24);
+			attempts++;
 		}
-		else if (Std.isOfType(ghost.weapon, Halberd))
+		while (attempts < maxAttempts && ( // Too close to egg
+				Math.sqrt(Math.pow(spawnX - eggCenterX, 2) + Math.pow(spawnY - eggCenterY, 2)) < 64 // Too close to player (24px buffer)
+				|| Math.sqrt(Math.pow(spawnX - playerCenterX, 2) + Math.pow(spawnY - playerCenterY, 2)) < 24));
+
+			// Create white ghost sprite for spawn animation
+		var whiteGhost:FlxSprite = whiteGhosts.getFirstAvailable();
+		if (whiteGhost == null)
 		{
-			var halberd:Halberd = cast ghost.weapon;
-			add(halberd.getJabHitbox());
+			whiteGhost = new FlxSprite();
+			whiteGhost.loadGraphic("assets/images/white-ghost.png", true, 8, 8); // Same 8x8 spritesheet format as players.png
+			whiteGhosts.add(whiteGhost);
 		}
+
+		// Set the sprite frame to match the character
+		whiteGhost.animation.frameIndex = charData.spriteFrame;
+
+		// Position white ghost centered at spawn location
+		// Center the sprite at the spawn point (spawnX, spawnY is top-left of 16x16 ghost)
+		// We want white ghost centered at spawnX+8, spawnY+8
+		whiteGhost.scale.set(0.5, 0.5);
+		whiteGhost.updateHitbox(); // Update bounds after scaling
+		whiteGhost.x = spawnX + 8 - whiteGhost.width / 2;
+		whiteGhost.y = spawnY + 8 - whiteGhost.height / 2;
+		whiteGhost.alpha = 0;
+		whiteGhost.exists = true;
+		whiteGhost.alive = true;
+
+		// Get stagger delay based on how many ghosts have been spawned in this batch
+		var ghostIndex = Ghost.getSpawnCounter();
+		var staggerDelay = 0.4 * ghostIndex;
+		Ghost.incrementSpawnCounter();
+
+		// Tween alpha to 1 over 0.8s
+		FlxTween.tween(whiteGhost, {alpha: 1}, 0.8, {startDelay: staggerDelay});
+
+		// Tween scale to 1 over 0.8s, then spawn real ghost
+		FlxTween.tween(whiteGhost.scale, {x: 1, y: 1}, 0.8, {
+			startDelay: staggerDelay,
+			onUpdate: function(_)
+			{
+				// Keep white ghost centered as it scales
+				whiteGhost.updateHitbox();
+				whiteGhost.x = spawnX + 8 - whiteGhost.width / 2;
+				whiteGhost.y = spawnY + 8 - whiteGhost.height / 2;
+			},
+			onComplete: function(_)
+			{
+				// Spawn the real ghost
+				var ghost:Ghost = ghosts.getFirstAvailable();
+				if (ghost == null)
+				{
+					ghost = new Ghost();
+					ghosts.add(ghost);
+				}
+				ghost.spawn(charData, player, bossProjectiles, eggCenterX, eggCenterY);
+				// Override spawn position to match white ghost
+				ghost.x = spawnX;
+				ghost.y = spawnY;
+				ghost.alpha = 0.95; // Slightly transparent
+
+				// Make ghost inactive and face center until camera pans to player
+				ghost.active = false;
+				var centerX = map.width / 2;
+				var centerY = map.height / 2;
+				ghost.facingAngle = Math.atan2(centerY - ghost.y, centerX - ghost.x);
+
+				// Set death callback to spawn spirit orb at ghost's shadow position
+				ghost.onDeath = function(g:Ghost)
+				{
+					var orbX = g.x + g.width / 2;
+					var orbY = g.y + g.height; // At the bottom (where shadow is)
+					spawnSpiritOrb(orbX, orbY, g.characterData.level);
+				};
+
+				// Add ghost weapon hitboxes to scene (for melee weapons)
+				if (Std.isOfType(ghost.weapon, Sword))
+				{
+					var sword:Sword = cast ghost.weapon;
+					add(sword.getSlashHitbox());
+					add(sword.getSpinHitbox());
+				}
+				else if (Std.isOfType(ghost.weapon, Halberd))
+				{
+					var halberd:Halberd = cast ghost.weapon;
+					add(halberd.getJabHitbox());
+				}
+				// Fade out white ghost with scale increase
+				FlxTween.tween(whiteGhost, {alpha: 0}, 0.8);
+				FlxTween.tween(whiteGhost.scale, {x: 1.5, y: 1.5}, 0.8, {
+					onComplete: function(_)
+					{
+						whiteGhost.kill();
+					}
+				});
+			}
+		});
 	}
 	function startEggHatching():Void
 	{
@@ -798,6 +895,16 @@ class PlayState extends FlxState
 				add(halberd.getJabHitbox());
 			}
 		}
+	}
+
+	/**
+	 * Generate a unique damage instance ID for tracking damage cooldowns.
+	 * Uses the sprite's ID + current game ticks to create a unique ID per spawn/recycle.
+	 * This handles the edge case where a projectile hits, gets recycled, and hits again.
+	 */
+	function getDamageInstanceId(sprite:FlxSprite):String
+	{
+		return sprite.ID + "_" + FlxG.game.ticks;
 	}
 
 	function checkProjectileCollisions():Void
@@ -908,30 +1015,55 @@ class PlayState extends FlxState
 			if (sword.isSpinActive())
 			{
 				var spinHitbox = sword.getSpinHitbox();
-				if (spinHitbox.exists && spinHitbox.alpha > 0 && sword.canDealSpinDamage())
+				if (spinHitbox.exists && spinHitbox.alpha > 0)
 				{
 					var hitSomething = false;
 
-					// Check vs boss segments (can hit once per second)
-					if (boss != null && boss.alive && boss.visible)
+					// Check vs boss segments
+					if (!hitSomething && boss != null && boss.alive && boss.visible)
 					{
-						FlxG.overlap(spinHitbox, boss, function(h:FlxSprite, b:FlxSprite)
+						// Use boss's checkOverlap with standard collision and pixel-perfect
+						if (boss.checkOverlap(spinHitbox, false, true))
 						{
-							if (!hitSomething)
+							// Generate unique ID for this sword's spin hitbox at this moment
+							boss.takeDamage(sword.baseDamage * player.attackDamage * 0.7, getDamageInstanceId(spinHitbox));
+							hitSomething = true;
+							// ALWAYS bounce
+							var dx = player.x - boss.x;
+							var dy = player.y - boss.y;
+							var dist = Math.sqrt(dx * dx + dy * dy);
+							if (dist > 0)
 							{
-								boss.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
-								hitSomething = true;
+								dx /= dist;
+								dy /= dist;
+								var bounceSpeed = 150;
+								player.applySpinBounce(dx * bounceSpeed, dy * bounceSpeed);
 							}
-						});
+						}
 					}
 
 					// Check vs boss2 body parts
 					if (!hitSomething && boss2 != null && boss2.alive && boss2.isActive)
 					{
-						if (spinHitbox.overlaps(boss2.thorax) || spinHitbox.overlaps(boss2.head) || spinHitbox.overlaps(boss2.abdomen))
+						// Pixel-perfect check for spin vs boss2 segments
+						if ((spinHitbox.overlaps(boss2.thorax) && FlxG.pixelPerfectOverlap(spinHitbox, boss2.thorax))
+							|| (spinHitbox.overlaps(boss2.head) && FlxG.pixelPerfectOverlap(spinHitbox, boss2.head))
+							|| (spinHitbox.overlaps(boss2.abdomen) && FlxG.pixelPerfectOverlap(spinHitbox, boss2.abdomen)))
 						{
+							// Boss2 doesn't have damage source tracking yet, just damage normally
 							boss2.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
 							hitSomething = true;
+							// ALWAYS bounce
+							var dx = player.x - boss2.x;
+							var dy = player.y - boss2.y;
+							var dist = Math.sqrt(dx * dx + dy * dy);
+							if (dist > 0)
+							{
+								dx /= dist;
+								dy /= dist;
+								var bounceSpeed = 150;
+								player.applySpinBounce(dx * bounceSpeed, dy * bounceSpeed);
+							}
 						}
 					}
 
@@ -940,8 +1072,24 @@ class PlayState extends FlxState
 					{
 					FlxG.overlap(spinHitbox, mayflies, function(h:FlxSprite, m:Mayfly)
 					{
-						m.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
+							// Pixel-perfect for spin (has transparency)
+							if (FlxG.pixelPerfectOverlap(h, m))
+							{
+								// Mayflies will take damage every hit (no cooldown tracking yet)
+								m.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
 							hitSomething = true;
+								// ALWAYS bounce
+								var dx = player.x - m.x;
+								var dy = player.y - m.y;
+								var dist = Math.sqrt(dx * dx + dy * dy);
+								if (dist > 0)
+								{
+									dx /= dist;
+									dy /= dist;
+									var bounceSpeed = 150;
+									player.applySpinBounce(dx * bounceSpeed, dy * bounceSpeed);
+								}
+							}
 					});
 					}
 
@@ -950,14 +1098,25 @@ class PlayState extends FlxState
 					{
 					FlxG.overlap(spinHitbox, ghosts, function(h:FlxSprite, g:Ghost)
 					{
-						g.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
+							// Pixel-perfect for spin (has transparency)
+							if (FlxG.pixelPerfectOverlap(h, g))
+							{
+								// Ghosts will take damage every hit (no cooldown tracking yet)
+								g.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
 							hitSomething = true;
-					});
-				}
-					// Mark hit to start cooldown
-					if (hitSomething)
-					{
-						sword.markSpinHit();
+								// ALWAYS bounce
+								var dx = player.x - g.x;
+								var dy = player.y - g.y;
+								var dist = Math.sqrt(dx * dx + dy * dy);
+								if (dist > 0)
+								{
+									dx /= dist;
+									dy /= dist;
+									var bounceSpeed = 150;
+									player.applySpinBounce(dx * bounceSpeed, dy * bounceSpeed);
+								}
+							}
+						});
 					}
 				}
 			}
@@ -971,24 +1130,27 @@ class PlayState extends FlxState
 					var hitSomething = false;
 
 					// Check vs boss segments
-					if (boss != null && boss.alive && boss.visible)
+					if (!hitSomething && boss != null && boss.alive && boss.visible)
 					{
-						FlxG.overlap(hitbox, boss, function(h:FlxSprite, b:FlxSprite)
+						// Use boss's checkOverlap with rotated collision and pixel-perfect
+						if (boss.checkOverlap(hitbox, true, true))
 						{
-							if (!hitSomething)
-							{
-								boss.takeDamage(sword.baseDamage * player.attackDamage);
-								hitSomething = true;
-							}
-						});
+							// Generate unique ID for this sword's slash hitbox at this moment
+							boss.takeDamage(sword.baseDamage * player.attackDamage, getDamageInstanceId(hitbox));
+							hitSomething = true;
+						}
 					}
 
 					// Check vs boss2 body parts
 					if (!hitSomething && boss2 != null && boss2.alive && boss2.isActive)
 					{
-						if (hitbox.overlaps(boss2.thorax) || hitbox.overlaps(boss2.head) || hitbox.overlaps(boss2.abdomen))
+						// Pixel-perfect check for slash vs boss2 segments
+						// Boss2 doesn't have instance-based damage tracking yet
+						if ((hitbox.overlaps(boss2.thorax) && FlxG.pixelPerfectOverlap(hitbox, boss2.thorax))
+							|| (hitbox.overlaps(boss2.head) && FlxG.pixelPerfectOverlap(hitbox, boss2.head))
+							|| (hitbox.overlaps(boss2.abdomen) && FlxG.pixelPerfectOverlap(hitbox, boss2.abdomen)))
 						{
-							boss2.takeDamage(sword.baseDamage * player.attackDamage);
+							boss2.takeDamage(sword.baseDamage * player.attackDamage, getDamageInstanceId(hitbox));
 							hitSomething = true;
 						}
 					}
@@ -996,10 +1158,11 @@ class PlayState extends FlxState
 					// Check vs mayflies (only if didn't hit boss)
 					if (!hitSomething)
 					{
-						FlxG.overlap(hitbox, mayflies, function(h:FlxSprite, m:Mayfly)
+						mayflies.forEachAlive(function(m:Mayfly)
 						{
-							if (!hitSomething)
+							if (!hitSomething && hitbox.overlaps(m))
 							{
+								// Mayflies don't have cooldown tracking yet
 								m.takeDamage(sword.baseDamage * player.attackDamage);
 								hitSomething = true;
 							}
@@ -1008,10 +1171,11 @@ class PlayState extends FlxState
 					// Check vs ghosts (only if didn't hit anything else)
 					if (!hitSomething)
 					{
-						FlxG.overlap(hitbox, ghosts, function(h:FlxSprite, g:Ghost)
+						ghosts.forEachAlive(function(g:Ghost)
 						{
-							if (!hitSomething)
+							if (!hitSomething && hitbox.overlaps(g))
 							{
+								// Ghosts don't have cooldown tracking yet
 								g.takeDamage(sword.baseDamage * player.attackDamage);
 								hitSomething = true;
 							}
@@ -1111,13 +1275,12 @@ class PlayState extends FlxState
 				if (sword.isSpinActive())
 				{
 					var spinHitbox = sword.getSpinHitbox();
-					if (spinHitbox.exists && spinHitbox.alpha > 0 && sword.canDealSpinDamage())
+					if (spinHitbox.exists && spinHitbox.alpha > 0)
 					{
 						FlxG.overlap(spinHitbox, player, function(h:FlxSprite, p:Player)
 						{
-							// Ghosts deal 0.7 damage per spin hit (with 1 second cooldown)
+							// Ghosts deal 0.7 damage per spin hit
 							p.takeDamage(0.7, ghost.x + ghost.width / 2, ghost.y + ghost.height / 2);
-							sword.markSpinHit();
 						});
 					}
 				}
@@ -1195,7 +1358,7 @@ class PlayState extends FlxState
 
 	function projectileHitGhost(proj:Projectile, ghost:Ghost):Void
 	{
-		if (!proj.alive || !ghost.alive)
+		if (!proj.alive || !ghost.alive || ghost.currentHealth <= 0)
 			return;
 
 		ghost.takeDamage(proj.damage);
@@ -1207,6 +1370,11 @@ class PlayState extends FlxState
 		if (!proj.alive)
 			return;
 
+		// For boss segments, do pixel-perfect collision check to avoid hitting transparent areas
+		// AABB check already passed (by FlxG.overlap), now verify actual pixel overlap
+		if (!FlxG.pixelPerfectOverlap(proj, segment))
+			return;
+
 		boss.takeDamage(proj.damage);
 		proj.hitEnemy();
 	}
@@ -1215,6 +1383,10 @@ class PlayState extends FlxState
 	{
 		if (!player.isInvincible)
 		{
+			// Pixel-perfect check for boss collision to avoid transparent areas
+			if (!FlxG.pixelPerfectOverlap(player, segment))
+				return;
+				
 			player.takeDamage(boss.contactDamage, boss.x + boss.width / 2, boss.y + boss.height / 2);
 		}
 	}

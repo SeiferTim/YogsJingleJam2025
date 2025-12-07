@@ -49,6 +49,9 @@ class BossPhase02 extends FlxSprite implements IBoss
 	public var currentHealth:Float = 300;
 	public var bossName:String = "Reth'kira, the Tooth which Cuts the Veil";
 
+	// Damage cooldown tracking
+	var damageTracker:DamageTracker = new DamageTracker(1000); // 1 second cooldown
+
 	var moveSpeed:Float = 20;
 	public var isActive:Bool = false;
 
@@ -353,6 +356,9 @@ class BossPhase02 extends FlxSprite implements IBoss
 
 		if (!isActive)
 			return;
+
+		// Update damage cooldown tracking
+		damageTracker.update();
 
 		// Update attack state machine
 		updateAttackState(elapsed);
@@ -1253,10 +1259,16 @@ class BossPhase02 extends FlxSprite implements IBoss
 		pincers.kill();
 	}
 
-	public function takeDamage(damage:Float):Void
+	public function takeDamage(damage:Float, ?damageInstanceId:String):Void
 	{
 		if (!isActive)
 			return;
+
+		// Check cooldown using DamageTracker
+		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
+		{
+			return; // Still on cooldown for this specific instance
+		}
 
 		currentHealth -= damage;
 		if (currentHealth < 0)
@@ -1275,6 +1287,9 @@ class BossPhase02 extends FlxSprite implements IBoss
 			thorax.color = FlxColor.WHITE;
 			abdomen.color = FlxColor.WHITE;
 		});
+
+		// Record hit AFTER applying damage
+		damageTracker.recordHit(damageInstanceId);
 
 		if (currentHealth <= 0)
 		{
@@ -1295,6 +1310,47 @@ class BossPhase02 extends FlxSprite implements IBoss
 	{
 		alive = false;
 		// NOTE: Keep exists = true for phase transition detection
+	}
+
+	public function checkOverlap(sprite:FlxSprite, useRotatedCollision:Bool = false, usePixelPerfect:Bool = false):Bool
+	{
+		// Check collision with all body parts (not legs, they're cosmetic)
+		var bodyParts = [abdomen, thorax, head, leftArmUpper, rightArmUpper, leftArmClaw, rightArmClaw];
+
+		for (part in bodyParts)
+		{
+			if (part == null || !part.exists || !part.alive)
+				continue;
+
+			// First check: AABB or rotated collision
+			var basicOverlap = false;
+			if (useRotatedCollision && Std.isOfType(sprite, RotatedSprite))
+			{
+				// Use RotatedSprite's overlaps method for rotated collision
+				basicOverlap = cast(sprite, RotatedSprite).overlaps(part);
+			}
+			else
+			{
+				// Standard AABB check
+				basicOverlap = sprite.overlaps(part);
+			}
+
+			// Second check: pixel-perfect if requested
+			if (basicOverlap)
+			{
+				if (usePixelPerfect)
+				{
+					if (FlxG.pixelPerfectOverlap(sprite, part))
+						return true;
+				}
+				else
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	public function moveTo(targetX:Float, targetY:Float, speed:Float, elapsed:Float):Void

@@ -35,7 +35,13 @@ class Shadow extends FlxSprite
 		var shadowWidth = Std.int(parent.width * widthMultiplier);
 		var shadowHeight = Std.int(parent.height * heightMultiplier);
 
-		if (UseAlpha)
+		// Force dimensions to be even
+		if (shadowWidth % 2 == 1)
+			shadowWidth++;
+		if (shadowHeight % 2 == 1)
+			shadowHeight++;
+
+		if (UseAlpha || true)
 		{
 			// Use parent's alpha channel to create shadow
 			createAlphaShadow(shadowWidth, shadowHeight);
@@ -129,7 +135,7 @@ class Shadow extends FlxSprite
 
 		// Match parent's visibility
 		visible = parent.visible && parent.alpha > 0;
-		alpha = 0.5; // 50% opacity for shadows
+		alpha = parent.alpha;
 	}
 
 	override function update(elapsed:Float):Void

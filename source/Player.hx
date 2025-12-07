@@ -29,8 +29,16 @@ class Player extends FlxSprite
 	public var dodgeTimer:Float = 0;
 	public var dodgeCooldown:Float = 2.0;
 
+	// Spin bounce state
+	public var spinBounceActive:Bool = false;
+	public var spinBounceTimer:Float = 0;
+	public var spinBounceDuration:Float = 0.15; // How long to override input after bounce
+	public var spinBounceVelocityX:Float = 0;
+	public var spinBounceVelocityY:Float = 0;
+
 	// Visual
 	public var shadow:Shadow;
+	public var dizzySprite:FlxSprite; // Spinning dizzy indicator
 	
 	// Internal
 	var baseSpeed:Float = 40;
@@ -45,6 +53,13 @@ class Player extends FlxSprite
 	var dodgeDuration:Float = 0.2;
 	var dodgeDistance:Float = 32;
 	var dodgeTweens:Array<FlxTween> = [];
+
+	// Dizzy state (after sword spin)
+	public var isDizzy:Bool = false;
+
+	var dizzyTimer:Float = 0;
+	var dizzyDuration:Float = 0;
+	var dizzyFlipCounter:Int = 0; // Counter for flipping sprite during dizzy
 
 	// Knockback system
 	var isKnockedBack:Bool = false;
@@ -70,6 +85,10 @@ class Player extends FlxSprite
 		reticle.makeGraphic(3, 3, FlxColor.WHITE);
 		reticle.offset.set(1, 1);
 		reticle.visible = false; // Start hidden until player is active
+		// Dizzy sprite - 8x8 spinning indicator
+		dizzySprite = new FlxSprite();
+		dizzySprite.loadGraphic("assets/images/dizzy.png");
+		dizzySprite.visible = false;
 	}
 
 	public function getCritChance():Float
@@ -125,6 +144,37 @@ class Player extends FlxSprite
 			if (invincibilityTimer <= 0)
 				isInvincible = false;
 		}
+		// Handle dizzy state (post-spin)
+		if (isDizzy)
+		{
+			dizzyTimer -= elapsed;
+
+			// Flip sprite every 4th frame for dizzy effect
+			dizzyFlipCounter++;
+			if (dizzyFlipCounter % 4 == 0)
+			{
+				flipX = !flipX;
+			}
+
+			// Rotate dizzy sprite CCW continuously
+			dizzySprite.angle -= 360 * elapsed; // 360 degrees per second CCW (faster)
+			dizzySprite.visible = true;
+			dizzySprite.x = x + width / 2 - dizzySprite.width / 2;
+			dizzySprite.y = y - 10;
+
+			if (dizzyTimer <= 0)
+			{
+				isDizzy = false;
+				dizzyTimer = 0;
+				dizzyFlipCounter = 0;
+				dizzySprite.visible = false;
+			}
+		}
+		else
+		{
+			dizzySprite.visible = false;
+		}
+		
 		// Handle knockback timer
 		if (knockbackTimer > 0)
 		{
@@ -135,14 +185,24 @@ class Player extends FlxSprite
 				knockbackTimer = 0;
 			}
 		}
+		// Handle spin bounce timer
+		if (spinBounceActive)
+		{
+			spinBounceTimer -= elapsed;
+			if (spinBounceTimer <= 0)
+			{
+				spinBounceActive = false;
+				spinBounceTimer = 0;
+			}
+		}
 	}
 
 	function updateNormal(elapsed:Float):Void
 	{
-		// Block all input during knockback
-		if (isKnockedBack)
+		// Block all input during knockback or dizzy
+		if (isKnockedBack || isDizzy)
 		{
-			velocity.set(0, 0); // Ensure no movement (tween handles position)
+			velocity.set(0, 0); // Ensure no movement
 			return;
 		}
 		
@@ -154,6 +214,16 @@ class Player extends FlxSprite
 
 	function handleMovement():Void
 	{
+		// Don't handle movement input during spin - sword manages velocity
+		if (Std.isOfType(weapon, Sword))
+		{
+			var sword:Sword = cast weapon;
+			if (sword.isSpinActive())
+			{
+				return; // Sword.update() handles velocity during spin
+			}
+		}
+		
 		var moveX = Actions.leftStick.x != 0 ? Actions.leftStick.x : (Actions.right.triggered ? 1 : (Actions.left.triggered ? -1 : 0));
 		var moveY = Actions.leftStick.y != 0 ? Actions.leftStick.y : (Actions.down.triggered ? 1 : (Actions.up.triggered ? -1 : 0));
 
@@ -216,20 +286,23 @@ class Player extends FlxSprite
 		
 		if (Actions.shoot.triggered && !wasShootPressed)
 		{
-			// Wand fires tap immediately, then allows charging
-			if (Std.isOfType(weapon, Wand))
-			{
-				weapon.tap(); // Fire magic ball
-			}
-			// Start charging for all weapons (wand for sparks, others for charge attacks)
+			// JUSTPRESSED - All weapons: tap on press, then start charging
+			weapon.tap();
 			weapon.startCharge();
 			wasShootPressed = true;
 		}
 		else if (!Actions.shoot.triggered && wasShootPressed)
 		{
-			// Release - either fire charge attack or tap attack depending on hold time
+			// JUSTRELEASED - fire charge attack if held long enough
 			weapon.releaseCharge();
 			wasShootPressed = false;
+		}
+		// Update weapon's pressed state for charge accumulation
+		// This needs to happen every frame while button is held
+		if (wasShootPressed)
+		{
+			// Button is currently held - weapon will accumulate charge in update()
+			// (isPressed is already true from startCharge call)
 		}
 	}
 
@@ -298,9 +371,28 @@ class Player extends FlxSprite
 		angle = 0;
 		
 		for (tween in dodgeTweens)
+		{
 			if (tween != null)
 				tween.cancel();
+		}
 		dodgeTweens = [];
+	}
+
+	public function startDizzy(duration:Float):Void
+	{
+		isDizzy = true;
+		dizzyTimer = duration;
+		dizzyFlipCounter = 0;
+		velocity.set(0, 0);
+	}
+
+	public function applySpinBounce(bounceVelX:Float, bounceVelY:Float):Void
+	{
+		spinBounceActive = true;
+		spinBounceTimer = spinBounceDuration;
+		spinBounceVelocityX = bounceVelX;
+		spinBounceVelocityY = bounceVelY;
+		velocity.set(bounceVelX, bounceVelY);
 	}
 
 	function updateReticle():Void
@@ -342,6 +434,29 @@ class Player extends FlxSprite
 				velocity.x = 0;
 			if (hitY)
 				velocity.y = 0;
+		}
+		else if (weapon != null && Std.isOfType(weapon, Sword))
+		{
+			// Bounce off walls when spin attacking (reflect velocity)
+			var sword:Sword = cast weapon;
+			if (sword.isSpinActive())
+			{
+				var currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+				if (hitX)
+				{
+					// Reflect X velocity, keep Y
+					var newVelX = -velocity.x;
+					var newVelY = velocity.y;
+					applySpinBounce(newVelX, newVelY);
+				}
+				if (hitY)
+				{
+					// Reflect Y velocity, keep X
+					var newVelX = velocity.x;
+					var newVelY = -velocity.y;
+					applySpinBounce(newVelX, newVelY);
+				}
+			}
 		}
 	}
 
@@ -402,7 +517,7 @@ class Player extends FlxSprite
 		}
 
 		// Push player away
-		var knockbackDistance = 12; // Reduced from 24 - half the distance
+		var knockbackDistance = 20; // 16-24px range, set to 20px
 		var targetX = x + dirX * knockbackDistance;
 		var targetY = y + dirY * knockbackDistance;
 
@@ -458,14 +573,16 @@ class Player extends FlxSprite
 		{
 			switch (PlayState.current.gameState)
 			{
+				case INTRO | PHASE_0_5_GHOSTS:
+					currentPhase = 0; // Dies in Phase 0/0.5 → appears in Phase 0.5 (next run)
 				case PHASE_1_ACTIVE | PHASE_1_DEATH:
-					currentPhase = 1;
+					currentPhase = 1; // Dies in Phase 1 → appears in Phase 1.5
 				case PHASE_1_5_ACTIVE:
-					currentPhase = 1; // Deaths during Phase 1.5 count as Phase 1
+					currentPhase = 1; // Dies in Phase 1.5 → appears in Phase 1.5 (same wave, next run)
 				case PHASE_2_HATCH | PHASE_2_ACTIVE | PHASE_2_DEATH:
-					currentPhase = 2;
+					currentPhase = 2; // Dies in Phase 2 → appears in Phase 2.5
 				case PHASE_2_5_ACTIVE:
-					currentPhase = 2; // Deaths during Phase 2.5 count as Phase 2
+					currentPhase = 2; // Dies in Phase 2.5 → appears in Phase 2.5 (same wave, next run)
 				default:
 					currentPhase = 0;
 			}

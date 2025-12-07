@@ -98,9 +98,18 @@ class Mayfly extends GameEntity
 		}
 	}
 
-	override public function takeDamage(damage:Float):Void
+	override public function takeDamage(damage:Float, ?damageInstanceId:String):Void
 	{
+		// Check cooldown using DamageTracker from base class
+		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
+		{
+			return; // Still on cooldown for this specific instance
+		}
+		
 		currentHealth -= damage;
+		// Record hit AFTER applying damage
+		damageTracker.recordHit(damageInstanceId);
+		
 		if (currentHealth <= 0)
 		{
 			onDeath();

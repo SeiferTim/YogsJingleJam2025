@@ -16,6 +16,9 @@ class GameEntity extends FlxSprite
 	public var currentHealth:Float = 1;
 	public var weapon:Weapon;
 
+	// Damage cooldown tracking (prevents rapid damage from same projectile instance)
+	public var damageTracker:DamageTracker = new DamageTracker(1000); // 1 second cooldown
+
 	public function new()
 	{
 		super();
@@ -67,10 +70,20 @@ class GameEntity extends FlxSprite
 	 * Override this to add flash effects or other damage feedback.
 	 * 
 	 * @param damage Amount of damage to take
+	 * @param damageInstanceId Unique ID for damage source (for cooldown tracking)
 	 */
-	public function takeDamage(damage:Float):Void
+	public function takeDamage(damage:Float, ?damageInstanceId:String):Void
 	{
+		// Check cooldown using DamageTracker
+		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
+		{
+			return; // Still on cooldown for this specific instance
+		}
+		
 		currentHealth -= damage;
+		// Record hit AFTER applying damage
+		damageTracker.recordHit(damageInstanceId);
+		
 		if (currentHealth <= 0)
 		{
 			kill();
@@ -78,12 +91,23 @@ class GameEntity extends FlxSprite
 	}
 
 	/**
-	 * Override kill to automatically handle shadow cleanup.
+	 * Update damage tracker cooldowns.
+	 * Subclasses should call super.update(elapsed) to ensure cooldowns are cleaned up.
+	 */
+	override public function update(elapsed:Float):Void
+	{
+		super.update(elapsed);
+		damageTracker.update();
+	}
+
+	/**
+	 * Override kill to automatically handle shadow cleanup and cooldown reset.
 	 * Subclasses should call super.kill() to ensure shadows are cleaned up.
 	 */
 	override public function kill():Void
 	{
 		super.kill();
+		damageTracker.reset(); // Clear cooldowns when killed/recycled
 
 		if (shadow != null)
 		{

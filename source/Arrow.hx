@@ -16,10 +16,26 @@ class Arrow extends Weapon
 		maxChargeTime = 1.0;
 	}
 
+	override public function tap():Void
+	{
+		// Check cooldown and set it in base class
+		if (cooldownTimer <= 0)
+		{
+			fireArrow(1.0); // Regular power
+			super.tap(); // Let base class handle cooldown and preChargeTime
+		}
+	}
+
 	override function fire():Void
 	{
+		// JUSTRELEASED with charge > 0 - Fire charged arrow
+		// Power scales from 1.0x to 2.0x based on charge
 		var powerMultiplier = 1.0 + getChargePercent();
-		
+		fireArrow(powerMultiplier);
+	}
+
+	function fireArrow(powerMultiplier:Float):Void
+	{
 		var arrow:ArrowProjectile = cast projectiles.getFirstAvailable(ArrowProjectile);
 		if (arrow == null)
 		{

@@ -23,6 +23,16 @@ class Ghost extends GameEntity
 		spawnCounter = 0;
 	}
 	
+	public static function getSpawnCounter():Int
+	{
+		return spawnCounter;
+	}
+
+	public static function incrementSpawnCounter():Void
+	{
+		spawnCounter++;
+	}
+	
 	public var characterData:CharacterData;
 
 	// AI
@@ -217,14 +227,22 @@ class Ghost extends GameEntity
 		}
 	}
 
-	override public function takeDamage(damage:Float):Void
+	override public function takeDamage(damage:Float, ?damageInstanceId:String):Void
 	{
+		// Check cooldown using DamageTracker from base class
+		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
+		{
+			return; // Still on cooldown for this specific instance
+		}
+		
 		currentHealth -= damage;
 		
 		// Flash effect
 		FlxTween.cancelTweensOf(this, ["color"]);
 		color = FlxColor.RED;
 		FlxTween.tween(this, {color: 0xBBBBDD}, 0.1);
+		// Record hit AFTER applying damage
+		damageTracker.recordHit(damageInstanceId);
 
 		if (currentHealth <= 0)
 		{

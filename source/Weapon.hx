@@ -15,10 +15,13 @@ class Weapon
 	public var cooldown:Float;
 	public var baseDamage:Float;
 	public var cooldownTimer:Float = 0;
-	public var chargeTime:Float = 0;
+	public var preChargeTime:Float = -1; // -1 = not charging, >= 0 = charging (time before charge begins)
+	public var chargeTime:Float = 0; // Actual charge time
 	public var maxChargeTime:Float = 1.0;
 	public var isCharging:Bool = false;
-	public static var CHARGE_THRESHOLD:Float = 0.2; // 0.2 second delay before charging begins
+	public var isPressed:Bool = false; // Track if button is currently held
+
+	public static var CHARGE_DELAY:Float = 0.4; // 0.4 second delay before charging begins (long enough to be intentional)
 
 	public var owner:FlxSprite; // Can be Player or Ghost
 	var projectiles:FlxTypedGroup<Projectile>;
@@ -84,43 +87,57 @@ class Weapon
 		if (cooldownTimer > 0)
 			cooldownTimer -= elapsed;
 
-		// Only accumulate charge time AFTER threshold is passed
-		if (isCharging)
+		// PRESSED - accumulate precharge, then charge (ONLY if preChargeTime >= 0, meaning tap succeeded)
+		if (isPressed && preChargeTime >= 0)
 		{
-			chargeTime += elapsed;
-			// Cap at threshold + maxChargeTime
-			if (chargeTime > CHARGE_THRESHOLD + maxChargeTime)
-				chargeTime = CHARGE_THRESHOLD + maxChargeTime;
+			if (preChargeTime < CHARGE_DELAY)
+			{
+				preChargeTime += elapsed;
+			}
+			else if (chargeTime < maxChargeTime)
+			{
+				chargeTime += elapsed;
+				if (chargeTime > maxChargeTime)
+					chargeTime = maxChargeTime;
+
+				// Notify subclasses that charging is happening (for wand sparks, etc)
+				onCharging(elapsed);
+			}
 		}
+	}
+
+	public function onCharging(elapsed:Float):Void
+	{
+		// Override in subclasses to do things while charging (wand sparks)
 	}
 
 	public function startCharge():Void
 	{
-		if (cooldownTimer <= 0)
+		// Start charging (but only if tap succeeded and set preChargeTime to 0)
+		if (!isPressed)
 		{
-			isCharging = true;
+			isPressed = true;
+			isCharging = false;
+			// Don't reset preChargeTime here - tap() will set it to 0 if it succeeded
+			// If tap() failed (cooldown active), preChargeTime stays at -1
 			chargeTime = 0;
 		}
 	}
 
 	public function releaseCharge():Void
 	{
-		if (isCharging)
+		if (isPressed)
 		{
-			// Fire on release only if held past threshold (charge attack)
-			if (chargeTime >= CHARGE_THRESHOLD)
+			// JUSTRELEASED - IF CHARGE > 0, do charge attack
+			if (chargeTime > 0)
 			{
 				fire();
 				cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
 			}
-			else if (cooldownTimer <= 0)
-			{
-				// Quick tap - fire immediately
-				fire();
-				cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
-			}
-
+			// Reset charge state
+			isPressed = false;
 			isCharging = false;
+			preChargeTime = -1; // Reset to -1 (not charging)
 			chargeTime = 0;
 		}
 	}
@@ -128,32 +145,36 @@ class Weapon
 	public function cancelCharge():Void
 	{
 		// Cancel charge without firing
+		isPressed = false;
 		isCharging = false;
+		preChargeTime = -1; // Reset to -1 (not charging)
 		chargeTime = 0;
 	}
 
 	public function tap():Void
 	{
-		// Tap attacks fire immediately on press (not on release)
+		// JUSTPRESSED - instantly fire basic attack and start cooldown
+		// Each weapon overrides this to do its basic attack
 		if (cooldownTimer <= 0)
 		{
-			fire();
+			// Subclass should call doTap() to perform the actual attack
+			// Then this base method sets cooldown and enables charging
 			cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
+			// Set preChargeTime to 0 to allow charging (tap succeeded!)
+			preChargeTime = 0;
 		}
+		// If cooldown active, preChargeTime stays at -1, preventing charging
 	}
 
 	public function fire():Void
 	{
-		// Override in subclasses
+		// Charge attack - override in subclasses
+		// This is called on release if charge > 0
 	}
 
 	public function getChargePercent():Float
 	{
-		// No charge until threshold is passed
-		if (chargeTime <= CHARGE_THRESHOLD)
-			return 0;
-		// After threshold, calculate charge percentage from 0 to 1.0
-		var chargeProgress = chargeTime - CHARGE_THRESHOLD;
-		return Math.min(chargeProgress / maxChargeTime, 1.0);
+		// Return charge as percentage from 0 to 1.0
+		return Math.min(chargeTime / maxChargeTime, 1.0);
 	}
 }

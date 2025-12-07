@@ -11,70 +11,50 @@ class Wand extends Weapon
 	var baseSpeed:Float = 120;
 	var sparkTimer:Float = 0;
 	var sparkInterval:Float = 0.08; // Fire sparks every 0.08s = ~12/sec
-	var firedBallThisPress:Bool = false; // Track if we fired a ball on this button press
 
 	public function new(Owner:FlxSprite, Projectiles:FlxTypedGroup<Projectile>)
 	{
 		super(Owner, Projectiles);
 		cooldown = 2.0; // 2 second cooldown between magic balls
 		baseDamage = 5.0;
-		maxChargeTime = 999.0; // Infinite hold
+		maxChargeTime = 999.0; // Wand doesn't increase charge, just tracks duration
 	}
 
 	override public function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
 
-		// While holding charge (after threshold), constantly fire sparks
-		if (isCharging && chargeTime >= Weapon.CHARGE_THRESHOLD)
+		// Wand doesn't accumulate charge - reset it after sparks start
+		// This keeps chargeTime > 0 (so fire() gets called on release) but doesn't grow
+		if (chargeTime > 0.1)
+			chargeTime = 0.1;
+	}
+
+	override public function onCharging(elapsed:Float):Void
+	{
+		// While charging (after precharge delay), constantly fire sparks
+		sparkTimer += elapsed;
+		if (sparkTimer >= sparkInterval)
 		{
-			sparkTimer += elapsed;
-			if (sparkTimer >= sparkInterval)
-			{
-				sparkTimer = 0;
-				fireWeakSpark();
-			}
+			sparkTimer = 0;
+			fireWeakSpark();
 		}
 	}
 
 	override public function tap():Void
 	{
-		// Fire magic ball immediately on press (if cooldown ready)
+		// Check cooldown and fire
 		if (cooldownTimer <= 0)
 		{
 			fireHomingBall();
-			// Set cooldown immediately after firing magic ball
-			cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
-			firedBallThisPress = true;
-		}
-	}
-
-	override public function startCharge():Void
-	{
-		// Wand allows charging even during cooldown (if we fired a ball this press)
-		if (cooldownTimer <= 0 || firedBallThisPress)
-		{
-			isCharging = true;
-			chargeTime = 0;
+			super.tap(); // Let base class handle cooldown and preChargeTime
 		}
 	}
 
 	override function fire():Void
 	{
-		// Called on charge release - wand doesn't do anything here
+		// JUSTRELEASED with charge > 0 - Wand doesn't do anything special
 		// Sparks already fired during hold
-		sparkTimer = 0;
-	}
-
-	override public function releaseCharge():Void
-	{
-		if (isCharging)
-		{
-			// Wand doesn't fire anything on release, just stop charging
-			isCharging = false;
-			chargeTime = 0;
-			firedBallThisPress = false; // Reset flag
-		}
 		sparkTimer = 0;
 	}
 
