@@ -22,6 +22,7 @@ class SpiritOrb extends FlxSprite
 	var moveTowardPlayerDelay:Float = 0.5; // Delay before orb starts moving toward player
 	var moveDelay:Float = 0;
 	var targetPlayer:Player;
+	var ghostLevel:Int = 1; // How many levels to give the player when collected
 
 	public function new()
 	{
@@ -40,44 +41,45 @@ class SpiritOrb extends FlxSprite
 
 		// Smaller hitbox (6x6 centered within the 8x8 sprite)
 		setSize(6, 6);
-		offset.set(1, 1); // Center the 6x6 hitbox within the 8x8 sprite
+		centerOffsets();
 
 		antialiasing = false;
 		isActive = false;
 		exists = false;
-		alpha = 0.7; // Semi-transparent
+		alpha = 0;
+		
 	}
 
-	public function spawn(X:Float, Y:Float, player:Player):Void
+	public function spawn(X:Float, Y:Float, player:Player, level:Int = 1):Void
 	{
-		x = X - width / 2; // Center on spawn position
-		y = Y - height / 2;
+		reset(x = X - width / 2, y = Y - height / 2);
+
+		velocity.set();
 		isActive = true;
 		exists = true;
 		visible = true;
-		alpha = 0.7; // Semi-transparent
+		alpha = 0;
 		floatTimer = 0;
 		moveDelay = moveTowardPlayerDelay;
 		targetPlayer = player;
+		ghostLevel = level; // Store the ghost's level
 
-		// Add a small scale-in effect
-		scale.set(0.1, 0.1);
-		FlxTween.tween(scale, {x: 1, y: 1}, 0.3);
+		FlxTween.tween(this, {alpha: 0.9}, 0.3);
 	}
 
-	public function despawn():Void
+	override public function kill()
 	{
-		isActive = false;
-		exists = false;
-		visible = false;
+		super.kill();
+		velocity.set();
 		targetPlayer = null;
+
 	}
 
 	override public function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
 
-		if (!isActive)
+		if (!alive)
 			return;
 
 		// Floating animation
@@ -119,39 +121,16 @@ class SpiritOrb extends FlxSprite
 	{
 		if (targetPlayer == null || !targetPlayer.exists)
 		{
-			despawn();
+			kill();
 			return;
 		}
 
-		// Level up a random stat
-		var statChoice = FlxG.random.int(0, 2);
-		var statIncrement = 0.1; // 10% increase per orb
-
-		switch (statChoice)
-		{
-			case 0: // Attack damage
-				targetPlayer.attackDamage += statIncrement;
-				trace("Spirit Orb collected! Attack Damage: " + targetPlayer.attackDamage);
-
-			case 1: // Move speed
-				targetPlayer.moveSpeed += statIncrement;
-				trace("Spirit Orb collected! Move Speed: " + targetPlayer.moveSpeed);
-
-			case 2: // Luck
-				targetPlayer.luck += statIncrement;
-				trace("Spirit Orb collected! Luck: " + targetPlayer.luck);
-		}
-
-		// Flash the player to show level up
-		FlxG.camera.flash(FlxColor.WHITE, 0.15);
-
-		// TODO: Play collection sound effect
-		// FlxG.sound.play("assets/sounds/orb_collect.wav");
-
-		// Trigger callback if set
+		// Level up the player by the ghost's level (kill level 3 ghost = gain 3 levels)
+		targetPlayer.levelUp(ghostLevel);
+		
 		if (onCollect != null)
 			onCollect();
 
-		despawn();
+		kill();
 	}
 }

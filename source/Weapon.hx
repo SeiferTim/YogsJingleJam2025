@@ -18,7 +18,7 @@ class Weapon
 	public var chargeTime:Float = 0;
 	public var maxChargeTime:Float = 1.0;
 	public var isCharging:Bool = false;
-	public static var CHARGE_THRESHOLD:Float = 1.0; // 1 second threshold
+	public static var CHARGE_THRESHOLD:Float = 0.2; // 0.2 second delay before charging begins
 
 	public var owner:FlxSprite; // Can be Player or Ghost
 	var projectiles:FlxTypedGroup<Projectile>;
@@ -84,8 +84,14 @@ class Weapon
 		if (cooldownTimer > 0)
 			cooldownTimer -= elapsed;
 
-		if (isCharging && chargeTime < maxChargeTime)
+		// Only accumulate charge time AFTER threshold is passed
+		if (isCharging)
+		{
 			chargeTime += elapsed;
+			// Cap at threshold + maxChargeTime
+			if (chargeTime > CHARGE_THRESHOLD + maxChargeTime)
+				chargeTime = CHARGE_THRESHOLD + maxChargeTime;
+		}
 	}
 
 	public function startCharge():Void
@@ -101,15 +107,37 @@ class Weapon
 	{
 		if (isCharging)
 		{
-			// If pressed < 1 second, treat as tap (no charge bonus)
-			if (chargeTime < CHARGE_THRESHOLD)
-				chargeTime = 0;
-			
-			fire();
+			// Fire on release only if held past threshold (charge attack)
+			if (chargeTime >= CHARGE_THRESHOLD)
+			{
+				fire();
+				cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
+			}
+			else if (cooldownTimer <= 0)
+			{
+				// Quick tap - fire immediately
+				fire();
+				cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
+			}
+
 			isCharging = false;
 			chargeTime = 0;
-			// Speed affects cooldown: higher speed = shorter cooldown
-			// Formula: actualCooldown = baseCooldown / (1 + speed * 0.5)
+		}
+	}
+
+	public function cancelCharge():Void
+	{
+		// Cancel charge without firing
+		isCharging = false;
+		chargeTime = 0;
+	}
+
+	public function tap():Void
+	{
+		// Tap attacks fire immediately on press (not on release)
+		if (cooldownTimer <= 0)
+		{
+			fire();
 			cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
 		}
 	}
@@ -121,8 +149,11 @@ class Weapon
 
 	public function getChargePercent():Float
 	{
-		if (chargeTime < CHARGE_THRESHOLD)
+		// No charge until threshold is passed
+		if (chargeTime <= CHARGE_THRESHOLD)
 			return 0;
-		return (chargeTime - CHARGE_THRESHOLD) / (maxChargeTime - CHARGE_THRESHOLD);
+		// After threshold, calculate charge percentage from 0 to 1.0
+		var chargeProgress = chargeTime - CHARGE_THRESHOLD;
+		return Math.min(chargeProgress / maxChargeTime, 1.0);
 	}
 }

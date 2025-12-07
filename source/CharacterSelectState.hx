@@ -1,5 +1,6 @@
 package;
 
+import CharacterData.WeaponType;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.FlxState;
@@ -30,12 +31,19 @@ class CharacterSelectState extends FlxState
 		// Load bitmap font
 		font = FlxBitmapFont.fromAngelCode(AssetPaths.sml_font__png, AssetPaths.sml_font__xml);
 
-		// Title at top of screen
+		// Calculate card positions first to position title in the gap
+		var cardWidth = 70;
+		var cardHeight = 60;
+		var bottomRowY = FlxG.height - cardHeight - 1; // 1px from bottom
+		var topRowY = bottomRowY - cardHeight - 1; // 1px above bottom row
+
+		// Title centered in gap between top of screen and top of cards
 		titleText = new FlxBitmapText(font);
 		titleText.text = "CHOOSE YOUR CHAMPION";
 		// titleText.letterSpacing = 1;
 		titleText.x = Math.floor(FlxG.width / 2 - titleText.width / 2);
-		titleText.y = 2;
+		// Center vertically in the gap: (0 + topRowY) / 2 - height/2
+		titleText.y = Math.floor(topRowY / 2 - titleText.height / 2);
 		add(titleText);
 
 		// Generate 6 random characters
@@ -45,24 +53,21 @@ class CharacterSelectState extends FlxState
 		characterCards = new FlxTypedGroup<CharacterCard>();
 		add(characterCards);
 
-		var cardWidth = 70;
-		var cardHeight = 52; // Updated to match new card size
 		var cardSpacing = 8; // Horizontal spacing between cards
 		var cardsPerRow = 3;
-		var rowSpacing = 6; // Vertical spacing between rows
+		// Position cards (card dimensions already calculated above)
+		// var bottomRowY and topRowY already set
 
-		// Calculate positioning - leave room for title at top
+		// Calculate horizontal positioning
 		var totalWidth = (cardWidth * cardsPerRow) + (cardSpacing * (cardsPerRow - 1));
-		var totalHeight = (cardHeight * 2) + rowSpacing; // 52 + 6 + 52 = 110px total
 		var startX = Math.floor((FlxG.width - totalWidth) / 2);
-		var startY = Math.floor((FlxG.height - totalHeight) / 2) + 2; // Shift down slightly for title
 
 		for (i in 0...characters.length)
 		{
 			var row = Math.floor(i / cardsPerRow);
 			var col = i % cardsPerRow;
 			var cardX = startX + (col * (cardWidth + cardSpacing));
-			var cardY = startY + (row * (cardHeight + rowSpacing));
+			var cardY = row == 0 ? topRowY : bottomRowY; // Top row or bottom row
 
 			var card = new CharacterCard(cardX, cardY, characters[i], onCharacterSelected);
 			characterCards.add(card);
@@ -73,9 +78,43 @@ class CharacterSelectState extends FlxState
 	{
 		var result:Array<CharacterData> = [];
 
-		for (i in 0...count)
+		// Guarantee one of each weapon type appears
+		var guaranteedWeapons = [WeaponType.BOW, WeaponType.SWORD, WeaponType.WAND];
+		var allWeapons = [WeaponType.BOW, WeaponType.SWORD, WeaponType.WAND];
+
+		// First 3 characters: one of each weapon type
+		for (i in 0...3)
+		{
+			var char = CharacterData.createRandom();
+			// Override the weapon to guarantee one of each type
+			char.weaponType = guaranteedWeapons[i];
+
+			// Update sprite frame to match weapon
+			var isFemale = char.spriteFrame >= 4;
+			var frameOffset = isFemale ? 4 : 0;
+			char.spriteFrame = switch (char.weaponType)
+			{
+				case BOW: 0 + frameOffset;
+				case SWORD: 1 + frameOffset;
+				case WAND: 2 + frameOffset;
+				default: 0 + frameOffset;
+			}
+
+			result.push(char);
+		}
+
+		// Remaining characters: completely random
+		for (i in 3...count)
 		{
 			result.push(CharacterData.createRandom());
+		}
+		// Shuffle the array so guaranteed weapons aren't always in same positions
+		for (i in 0...result.length)
+		{
+			var j = Std.random(result.length);
+			var temp = result[i];
+			result[i] = result[j];
+			result[j] = temp;
 		}
 
 		return result;

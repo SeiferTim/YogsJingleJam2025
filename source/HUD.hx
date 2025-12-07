@@ -3,7 +3,9 @@ package;
 import flixel.FlxBasic;
 import flixel.FlxG;
 import flixel.FlxSprite;
+import flixel.graphics.frames.FlxBitmapFont;
 import flixel.group.FlxGroup;
+import flixel.text.FlxBitmapText;
 import flixel.ui.FlxBar;
 import flixel.util.FlxColor;
 
@@ -15,11 +17,12 @@ class HUD extends FlxGroup
 	var dodgeCooldownIcon:CooldownIcon;
 	var hearts:Array<FlxSprite>;
 	public var bossHealthBar:BossHealthBar;
+	var characterNameText:FlxBitmapText;
 
 	var player:Player;
 	var boss:IBoss;
 
-	var padding:Int = 4;
+	var padding:Int = 3; // Horizontal and vertical padding
 
 	// Custom alpha management
 	var _alpha:Float = 1.0;
@@ -67,17 +70,33 @@ class HUD extends FlxGroup
 		return value;
 	}
 
-	public function new(Player:Player, Boss:IBoss)
+	public function new(Player:Player, Boss:IBoss, ?characterName:String)
 	{
 		super();
 		player = Player;
 		boss = Boss;
 
+		var currentY = padding - 2; // Start 2px higher to account for font spacing
+
+		// Character name at top left above hearts
+		if (characterName != null && characterName.length > 0)
+		{
+			var font = FlxBitmapFont.fromAngelCode(AssetPaths.sml_font__png, AssetPaths.sml_font__xml);
+			characterNameText = new FlxBitmapText(font);
+			characterNameText.text = characterName;
+			characterNameText.scrollFactor.set(0, 0);
+			characterNameText.x = padding;
+			characterNameText.y = currentY;
+			add(characterNameText);
+
+			currentY += Std.int(characterNameText.height) + 2; // Move down with 2px gap
+		}
+
 		// Hearts (with 0 spacing between them) - heart.png has 2 frames: 0=filled, 1=empty
 		hearts = [];
 		for (i in 0...player.maxHP)
 		{
-			var heart = new FlxSprite(padding + i * 8, padding);
+			var heart = new FlxSprite(padding + i * 8, currentY);
 			heart.loadGraphic("assets/images/heart.png", true, 8, 8);
 			heart.animation.add("full", [0]);
 			heart.animation.add("empty", [1]);
@@ -88,7 +107,7 @@ class HUD extends FlxGroup
 		}
 
 		// Cooldown icons below hearts, aligned with leftmost heart
-		var iconsY = padding + 8 + 2; // Below hearts with 2px gap
+		var iconsY = currentY + 8 + 2; // Below hearts with 2px gap
 
 		// Weapon cooldown icon - use single sprite with frame selection
 		var weaponFrame = getWeaponIconFrame();

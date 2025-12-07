@@ -22,7 +22,7 @@ class CharacterCard extends FlxSpriteGroup
 	var font:FlxBitmapFont;
 
 	var cardWidth:Int = 70;
-	var cardHeight:Int = 54; // +2px for spacing below button
+	var cardHeight:Int = 60; // Reduced from 68: moved stats up 4px, button up 8px total = 8px shorter
 
 	public function new(X:Float, Y:Float, character:CharacterData, onSelect:CharacterData->Void)
 	{
@@ -66,24 +66,40 @@ class CharacterCard extends FlxSpriteGroup
 		weaponIcon.antialiasing = false;
 		add(weaponIcon);
 
-		// Stats as icons - moved up closer to portrait/weapon
-		var statsY = 26; // Closer to portrait/weapon icons
-		var iconSpacing = 14;
-		var startX = Math.floor((cardWidth - (8 + iconSpacing + 8 + iconSpacing + 8)) / 2);
+		// Show only best and worst stats (text + up/down icon)
+		var statsY = 22; // Same Y position as icons were
+		var lineHeight = 8; // Font height
 
-		// ATK icon
-		createStatIcon(startX, statsY, 0, character.bestStat == DAMAGE, character.worstStat == DAMAGE);
+		// Find which stats to show
+		var statLines:Array<{name:String, isUp:Bool}> = [];
+		
+		if (character.bestStat == DAMAGE)
+			statLines.push({name: "POWER", isUp: true});
+		else if (character.worstStat == DAMAGE)
+			statLines.push({name: "POWER", isUp: false});
+			
+		if (character.bestStat == SPEED)
+			statLines.push({name: "AGILITY", isUp: true});
+		else if (character.worstStat == SPEED)
+			statLines.push({name: "AGILITY", isUp: false});
+			
+		if (character.bestStat == LUCK)
+			statLines.push({name: "LUCK", isUp: true});
+		else if (character.worstStat == LUCK)
+			statLines.push({name: "LUCK", isUp: false});
 
-		// SPD icon
-		createStatIcon(startX + 8 + iconSpacing, statsY, 1, character.bestStat == SPEED, character.worstStat == SPEED);
+		// Show up to 2 stat lines (best and worst)
+		for (i in 0...statLines.length)
+		{
+			if (i >= 2)
+				break; // Max 2 lines
+			createStatLine(statsY + lineHeight * i, statLines[i].name, statLines[i].isUp);
+		}
 
-		// LCK icon
-		createStatIcon(startX + 16 + iconSpacing * 2, statsY, 2, character.bestStat == LUCK, character.worstStat == LUCK);
-
-		// PICK button using FlxTypedButton with bitmap font
+		// PICK button - back to original position
 		var buttonWidth = cardWidth - 8;
 		var buttonHeight = 12;
-		var buttonY = 39;
+		var buttonY = 43; // Original position
 
 		selectButton = new FlxTypedButton<FlxBitmapText>(4, buttonY, onSelectClicked);
 		selectButton.loadGraphic("assets/images/button-pick.png", true, buttonWidth, buttonHeight);
@@ -107,56 +123,32 @@ class CharacterCard extends FlxSpriteGroup
 		}
 	}
 
-	function createStatIcon(X:Float, Y:Float, iconType:Int, isBoosted:Bool, isWeakened:Bool):Void
+	function createStatLine(Y:Float, statName:String, isUp:Bool):Void
 	{
-		// Create colored background square
-		var iconBg = new FlxSprite(X, Y);
-		var bgColor = switch (iconType)
-		{
-			case 0: 0xffff4444; // Red for Power
-			case 1: 0xffcc8800; // Orange for Agility (darker than yellow for better contrast)
-			case 2: 0xff44ff44; // Green for Luck
-			default: 0xff4a5a8a;
-		}
-		iconBg.makeGraphic(8, 8, bgColor);
-		add(iconBg);
+		// Calculate total width: text + 2px gap + 8px arrow = text.width + 10
+		// We want to center this combined width, treating text as if it's 8px wider
+		var tempText = new FlxBitmapText(font);
+		tempText.text = statName;
+		var textWidth = tempText.width;
 
-		// Create white letter on top
-		// iconType: 0=ATK (P=Power), 1=SPD (A=Agility), 2=LCK (L=Luck)
-		var statLetter = switch (iconType)
-		{
-			case 0: "P"; // Power (ATK)
-			case 1: "A"; // Agility (SPD)
-			case 2: "L"; // Luck (LCK)
-			default: "?";
-		}
+		// Total width to center: text + 8px (for visual balance as requested)
+		var totalWidth = textWidth + 8;
+		var startX = Math.floor((cardWidth - totalWidth) / 2);
+		
+		// Create text label for stat
 		var statText = new FlxBitmapText(font);
-		statText.text = statLetter;
-		statText.color = 0xffffffff; // White letter
-		// Center the letter on the 8x8 background
-		statText.x = X + Math.floor((8 - statText.width) / 2);
-		statText.y = Y + Math.floor((8 - statText.height) / 2);
+		statText.text = statName;
+		statText.x = startX; // Position text at start
+		statText.y = Y;
+		statText.color = FlxColor.WHITE;
 		add(statText);
 
-		// Modifier sprite (up/down arrow) at bottom-right corner of background
-		// Must be added LAST to be visible on top
-		if (isBoosted || isWeakened)
-		{
-			var modifierSprite = new FlxSprite(X + 8 - 3, Y + 8 - 3); // Position at bottom-right corner
-			modifierSprite.loadGraphic("assets/images/up-down.png", true, 3, 3); // 2 frames: 0=UP, 1=DOWN
-			modifierSprite.antialiasing = false; // Ensure pixel-perfect rendering
-			
-			if (isBoosted)
-			{
-				modifierSprite.animation.frameIndex = 0; // UP frame
-			}
-			else if (isWeakened)
-			{
-				modifierSprite.animation.frameIndex = 1; // DOWN frame
-			}
-			
-			add(modifierSprite);
-		}
+		// Add up/down arrow sprite - positioned relative to the GROUP, not the text sprite
+		var arrowSprite = new FlxSprite(startX + textWidth + 2, Y); // 2px gap after text
+		arrowSprite.loadGraphic("assets/images/up-down.png", true, 8, 8); // 2 frames: 0=UP, 1=DOWN
+		arrowSprite.antialiasing = false;
+		arrowSprite.animation.frameIndex = isUp ? 0 : 1; // 0=UP, 1=DOWN
+		add(arrowSprite);
 	}
 
 	function getWeaponSymbol():String

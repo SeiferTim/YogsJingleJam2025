@@ -17,10 +17,12 @@ class Player extends FlxSprite
 	public var attackDamage:Float = 1.0;
 	public var moveSpeed:Float = 1.0;
 	public var luck:Float = 1.0;
+	public var level:Int = 1;
 
 	// Combat
 	public var weapon:Weapon;
 	public var facingAngle:Float = 0;
+	public var lastMovementAngle:Float = 0; // Track movement direction for dodge
 	public var isInvincible:Bool = false;
 	
 	// Dodge
@@ -33,15 +35,23 @@ class Player extends FlxSprite
 	// Internal
 	var baseSpeed:Float = 40;
 	var projectiles:FlxTypedGroup<Projectile>;
-	var reticle:FlxSprite;
+	public var reticle:FlxSprite; // Public so PlayState can hide during cinematics
 	var reticleDistance:Float = 12;
 	var wasShootPressed:Bool = false;
 	var invincibilityTimer:Float = 0;
-	var invincibilityDuration:Float = 1.0;
-	var isDodging:Bool = false;
+	var invincibilityDuration:Float = 0.8; // Increased back up - was too short
+
+	public var isDodging:Bool = false; // Public so collision checks can see it
 	var dodgeDuration:Float = 0.2;
 	var dodgeDistance:Float = 32;
 	var dodgeTweens:Array<FlxTween> = [];
+
+	// Knockback system
+	var isKnockedBack:Bool = false;
+	var knockbackTimer:Float = 0;
+	var knockbackDuration:Float = 0.3; // Reduced from 0.8s - much shorter push
+	var knockbackFreezeDuration:Float = 0.15; // Reduced from 0.2s - faster recovery
+	var knockbackTween:FlxTween = null;
 
 	public function new(X:Float, Y:Float, Projectiles:FlxTypedGroup<Projectile>)
 	{
@@ -59,6 +69,7 @@ class Player extends FlxSprite
 		reticle = new FlxSprite();
 		reticle.makeGraphic(3, 3, FlxColor.WHITE);
 		reticle.offset.set(1, 1);
+		reticle.visible = false; // Start hidden until player is active
 	}
 
 	public function getCritChance():Float
@@ -114,10 +125,27 @@ class Player extends FlxSprite
 			if (invincibilityTimer <= 0)
 				isInvincible = false;
 		}
+		// Handle knockback timer
+		if (knockbackTimer > 0)
+		{
+			knockbackTimer -= elapsed;
+			if (knockbackTimer <= 0)
+			{
+				isKnockedBack = false;
+				knockbackTimer = 0;
+			}
+		}
 	}
 
 	function updateNormal(elapsed:Float):Void
 	{
+		// Block all input during knockback
+		if (isKnockedBack)
+		{
+			velocity.set(0, 0); // Ensure no movement (tween handles position)
+			return;
+		}
+		
 		handleMovement();
 		handleAiming();
 		handleShooting();
@@ -132,6 +160,8 @@ class Player extends FlxSprite
 		if (moveX != 0 || moveY != 0)
 		{
 			var angle = Math.atan2(moveY, moveX);
+			lastMovementAngle = angle; // Store for dodge direction
+			
 			var speedMultiplier = 1.0;
 			
 			// Slow down while charging
@@ -186,11 +216,18 @@ class Player extends FlxSprite
 		
 		if (Actions.shoot.triggered && !wasShootPressed)
 		{
+			// Wand fires tap immediately, then allows charging
+			if (Std.isOfType(weapon, Wand))
+			{
+				weapon.tap(); // Fire magic ball
+			}
+			// Start charging for all weapons (wand for sparks, others for charge attacks)
 			weapon.startCharge();
 			wasShootPressed = true;
 		}
 		else if (!Actions.shoot.triggered && wasShootPressed)
 		{
+			// Release - either fire charge attack or tap attack depending on hold time
 			weapon.releaseCharge();
 			wasShootPressed = false;
 		}
@@ -226,11 +263,13 @@ class Player extends FlxSprite
 		isDodging = true;
 		isInvincible = true;
 
+		// Use last movement direction instead of facing direction
+		var dodgeAngle = lastMovementAngle;
 		var speed = dodgeDistance / dodgeDuration;
-		velocity.set(Math.cos(facingAngle) * speed, Math.sin(facingAngle) * speed);
+		velocity.set(Math.cos(dodgeAngle) * speed, Math.sin(dodgeAngle) * speed);
 
-		// Dodge roll animation
-		var rotationAmount = (facingAngle * FlxAngle.TO_DEG < 0) ? -360 : 360;
+		// Dodge roll animation - use movement angle for rotation direction
+		var rotationAmount = (dodgeAngle * FlxAngle.TO_DEG < 0) ? -360 : 360;
 		
 		dodgeTweens.push(FlxTween.tween(offset, {y: -2.5}, dodgeDuration / 2, {
 			ease: FlxEase.quadOut,
@@ -306,51 +345,103 @@ class Player extends FlxSprite
 		}
 	}
 
-	public function takeDamage(damage:Float):Void
+	public function takeDamage(damage:Float, ?sourceX:Float, ?sourceY:Float):Void
 	{
-		if (isInvincible)
+		if (isInvincible || isKnockedBack)
 			return;
 
 		currentHP = Std.int(Math.max(0, currentHP - 1));
 		isInvincible = true;
 		invincibilityTimer = invincibilityDuration;
 
+		// Calculate knockback direction
+		if (sourceX != null && sourceY != null)
+		{
+			var dirX = x + width / 2 - sourceX;
+			var dirY = y + height / 2 - sourceY;
+			var length = Math.sqrt(dirX * dirX + dirY * dirY);
+
+			if (length > 0)
+			{
+				dirX /= length;
+				dirY /= length;
+			}
+			else
+			{
+				// Default to pushing down if source is at exact same position
+				dirX = 0;
+				dirY = 1;
+			}
+
+			// Apply knockback
+			applyKnockback(dirX, dirY);
+		}
+
 		if (currentHP <= 0)
 			onDeath();
 	}
 
+	function applyKnockback(dirX:Float, dirY:Float):Void
+	{
+		// Cancel any ongoing charge
+		if (weapon != null)
+			weapon.cancelCharge();
+
+		// Stop movement
+		velocity.set(0, 0);
+
+		// Set knockback state
+		isKnockedBack = true;
+		knockbackTimer = knockbackDuration + knockbackFreezeDuration;
+
+		// Cancel any existing knockback tween
+		if (knockbackTween != null)
+		{
+			knockbackTween.cancel();
+			knockbackTween = null;
+		}
+
+		// Push player away
+		var knockbackDistance = 12; // Reduced from 24 - half the distance
+		var targetX = x + dirX * knockbackDistance;
+		var targetY = y + dirY * knockbackDistance;
+
+		// Clamp to playable area
+		targetX = Math.max(0, Math.min(FlxG.width - width, targetX));
+		targetY = Math.max(0, Math.min(FlxG.height - height, targetY));
+
+		knockbackTween = FlxTween.tween(this, {x: targetX, y: targetY}, knockbackDuration, {
+			ease: flixel.tweens.FlxEase.quadOut,
+			onComplete: function(_)
+			{
+				knockbackTween = null;
+			}
+		});
+	}
 	function onDeath():Void
 	{
-		// Switch to death frame (living frame + 8)
-		var deathFrame = animation.frameIndex + 8;
+		// Immediately stop all movement and actions
+		velocity.set(0, 0);
+		active = false; // Disable update logic (movement, shooting, etc.)
+		reticle.visible = false; // Hide reticle
 
-		// Check if death frame exists (players.png should have 16 frames: 0-7 living, 8-15 dead)
+		// Switch to death frame (current frame + 8)
+		var livingFrame = animation.frameIndex;
+		var deathFrame = livingFrame + 8;
+
+		// Switch to death frame if it exists
 		if (deathFrame < 16)
 		{
 			animation.frameIndex = deathFrame;
-
-			// Fade out then switch state
-			FlxTween.tween(this, {alpha: 0}, 1.0, {
-				onComplete: function(t:FlxTween)
-				{
-					switchToGameOver();
-				}
-			});
 		}
-		else
+		// Tell PlayState to handle the death screen (fade to black + show substate)
+		if (PlayState.current != null)
 		{
-			// No death frame available, just fade out
-			trace("Death frame not found, using fallback");
-			FlxTween.tween(this, {alpha: 0}, 1.0, {
-				onComplete: function(t:FlxTween)
-				{
-					switchToGameOver();
-				}
-			});
+			PlayState.current.onPlayerDeath();
 		}
 	}
 
-	function switchToGameOver():Void
+	function switchToGameOver(livingFrame:Int):Void
 	{
 		// Determine weapon type from current weapon
 		var weaponType:WeaponType = BOW;
@@ -379,8 +470,8 @@ class Player extends FlxSprite
 					currentPhase = 0;
 			}
 		}
-		// Save character data for ghost spawning
-		var characterData = new CharacterData("Ghost", weaponType, SPEED, DAMAGE, animation.frameIndex);
+		// Save character data for ghost spawning (use livingFrame, not current frame which is death frame!)
+		var characterData = new CharacterData("Ghost", weaponType, SPEED, DAMAGE, livingFrame);
 		characterData.maxHP = maxHP;
 		characterData.attackDamage = attackDamage;
 		characterData.moveSpeed = moveSpeed;
@@ -405,6 +496,17 @@ class Player extends FlxSprite
 	override function draw():Void
 	{
 		super.draw();
-		reticle.draw();
+		if (reticle.visible)
+			reticle.draw();
+	}
+	public function levelUp(Levels:Int):Void
+	{
+		level += Levels;
+		attackDamage += 0.1 * Levels;
+		moveSpeed += 0.1 * Levels;
+		luck += 0.1 * Levels;
+		maxHP = 3 + Std.int((level - 3) / 3);
+		currentHP = maxHP;
+		FlxG.camera.flash(FlxColor.WHITE, 0.15);
 	}
 }

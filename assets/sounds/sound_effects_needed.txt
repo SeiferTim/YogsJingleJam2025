@@ -1,0 +1,71 @@
+SOUND EFFECTS NEEDED
+
+=== PLAYER ===
+
+player_dodge - dodge roll sound 
+player_hurt - player takes damage 
+player_death - player dies (separate from hurt)
+player_heal - collecting heart pickup 
+
+=== WEAPONS - BOW ===
+
+arrow_shot - when an arrow is fired
+arrow_hit - arrow hits something (thunk)
+
+=== WEAPONS - SWORD ===
+
+sword_sweep - quick sweep attack
+sword_spin - sound when spinning with sword (just a pwissh sound - no looping I think)
+sword_hit - sword hits enemy (melee impact) 
+
+=== WEAPONS - WAND ===
+
+wand_tap - fire magic bubble
+magic_bubble - a sound for the bubble as it flies
+bubble_pop - when the bubble hits something it pops
+sparks - when holding attack sparks shoot out of the wand - need short sound for each one spawning
+
+=== WEAPONS - HALBERD ===
+
+halberd_tap - quick jab attack 
+halberd_hit - halberd hits enemy 
+
+=== BOSS (GENERAL) ===
+
+boss_roar - boss roars (used in all phases for various events) - 0.4 seconds
+spit - boss spits projectile
+plasma_charge - while charging plasma ball in mouth - 1.2 seconds
+plasma_ball_loop - short plasma ball flying/humming sound (loopable)
+plasma_explosion - plasma ball explodes (magical explosion)
+boss_hit - boss takes damage (any phase) 
+boss_death - Phase 1 boss death
+boss_name_reveal - like a "bwaaoooom!" sound when the boss is revealed
+
+=== BOSS PHASE 1 (LARVA) ===
+
+egg_hatch - egg hatches (Phase 0 to Phase 1) 
+cocoon_form - boss forms cocoon (Phase 1 to Phase 1.5) 
+slam_impact - boss slams down, creates shockwave 
+
+=== BOSS PHASE 2 (MANTID) ===
+
+cocoon_break - cocoon breaks (Phase 1.5 to Phase 2) 
+TBD
+
+=== BOSS PHASE 3 (MOTH) ===
+
+TBD
+
+=== ENEMIES ===
+
+mayfly_death - mayfly dies
+
+ghost_spawn - ghost appears 
+ghost_death - ghost defeated 
+soul_orb - could reuse plasma sound while orb is flying
+soul_orb_collect - player collects orb/levels up - big power-up sound
+
+=== ENVIRONMENT / UI ===
+
+
+heart_spawn - heart pickup appears

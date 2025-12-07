@@ -1,13 +1,11 @@
 package;
 
-import flixel.FlxSprite;
 import flixel.math.FlxPoint;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 
-class HeartPickup extends FlxSprite
+class HeartPickup extends GameEntity
 {
-	public var shadow:Shadow;
 
 	var healAmount:Int = 1;
 
@@ -23,15 +21,8 @@ class HeartPickup extends FlxSprite
 	public function spawn(Pos:FlxPoint):Void
 	{
 		reset(Pos.x - 4, Pos.y - 4);
-		if (shadow == null)
-		{
-			shadow = new Shadow(this, 0.8, 0.5, 0, height / 2);
-			PlayState.current.shadowLayer.add(shadow);
-		}
-		else
-		{
-			shadow.revive();
-		}
+		setupShadow(0.8, 0.5, 0, height / 2);
+		
 		alpha = 0;
 		offset.y = 4;
 		FlxTween.tween(this, {alpha: 1}, 0.2, {
@@ -54,12 +45,7 @@ class HeartPickup extends FlxSprite
 
 	override function kill():Void
 	{
-		super.kill();
 		FlxTween.cancelTweensOf(this);
-
-		if (shadow != null)
-		{
-			shadow.kill();
-		}
+		super.kill(); // Handles shadow cleanup automatically
 	}
 }

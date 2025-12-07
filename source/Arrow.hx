@@ -76,4 +76,9 @@ class ArrowProjectile extends Projectile
 			updateTipHitbox(angle);
 		}
 	}
+	override public function revive():Void
+	{
+		super.revive();
+		sticksToWalls = true;
+	}
 }

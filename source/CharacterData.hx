@@ -18,7 +18,6 @@ class CharacterData
 
 	// Current progression
 	public var level:Int;
-	public var xp:Int;
 	public var maxHP:Int;
 
 	// Final calculated stats (with modifiers and level bonuses)
@@ -28,9 +27,6 @@ class CharacterData
 
 	// Which phase the character died in (0 = before Phase 1, 1 = Phase 1, 2 = Phase 2, etc.)
 	public var deathPhase:Int;
-
-	// XP curve: level * 100 XP needed for next level
-	public static inline var XP_PER_LEVEL:Int = 100;
 
 	// Leveling bonuses
 	public static inline var STAT_INCREASE_PER_LEVEL:Float = 0.10; // 10% per level
@@ -56,36 +52,10 @@ class CharacterData
 		worstStat = WorstStat;
 
 		level = 1;
-		xp = 0;
 		maxHP = BASE_HP;
 		deathPhase = 0; // Default to 0 (alive)
 
 		recalculateStats();
-	}
-
-	/**
-	 * Add XP and check for level up.
-	 * @return True if leveled up
-	 */
-	public function addXP(amount:Int):Bool
-	{
-		xp += amount;
-		var xpNeeded = getXPForNextLevel();
-
-		if (xp >= xpNeeded)
-		{
-			xp -= xpNeeded;
-			level++;
-			recalculateStats();
-			return true; // Leveled up!
-		}
-
-		return false;
-	}
-
-	public function getXPForNextLevel():Int
-	{
-		return level * XP_PER_LEVEL;
 	}
 
 	public function recalculateStats():Void
@@ -126,41 +96,48 @@ class CharacterData
 	 */
 	public static function createRandom():CharacterData
 	{
-		var names = [
-			"Aldric",
-			"Brom",
-			"Cedric",
-			"Doran",
-			"Elara",
-			"Finn",
-			"Gwendolyn",
-			"Hilda",
-			"Isolde",
-			"Jasper",
-			"Keira",
-			"Lorin",
-			"Mira",
-			"Nero",
-			"Olwen",
-			"Piers",
-			"Quinn",
-			"Rowan",
-			"Sable",
-			"Thorne",
-			"Uma",
-			"Vex",
-			"Wren",
-			"Xander",
-			"Yara",
-			"Zephyr"
-		];
-
 		var weapons = [WeaponType.BOW, WeaponType.SWORD, WeaponType.WAND];
 
-		var name = names[Std.random(names.length)];
-		var weapon = weapons[Std.random(weapons.length)];
+		// First, pick gender and get a matching name
+		// 50/50 chance for male or female (neutral names can match either)
+		var isFemale = Math.random() > 0.5;
+		var gender = isFemale ? "F" : "M";
 
-		// Pick random best and worst stats (must be different)
+		// Get name matching gender (Yogscast names have 3x higher chance)
+		var nameEntry = NameData.getRandomName(gender, 3.0);
+		var name = nameEntry.first_name;
+
+		// Keep trying until we get a unique name not used by dead characters
+		var deadCharacters = GameData.getDeadCharacters();
+		var usedNames = [for (char in deadCharacters) char.name];
+
+		// Failsafe: If we've used most names (>total-12), allow reusing names
+		var totalAvailableNames = NameData.allNames.length;
+		var shouldEnforceUnique = usedNames.length < (totalAvailableNames - 12);
+		
+		if (shouldEnforceUnique)
+		{
+			// Try to find unique name
+			var attempts = 0;
+			while (usedNames.contains(name) && attempts < 50)
+			{
+				nameEntry = NameData.getRandomName(gender, 3.0);
+				name = nameEntry.first_name;
+				attempts++;
+			}
+			
+			// If still not unique after 50 tries, add a number suffix
+			if (usedNames.contains(name))
+			{
+				var suffix = 2;
+				while (usedNames.contains(name + " " + suffix))
+					suffix++;
+				name = name + " " + suffix;
+			}
+		}
+		// else: Allow duplicate names - player has killed so many characters!
+	
+		var weapon = weapons[Std.random(weapons.length)]; // Pick random best and worst stats (must be different)
 		var allStats = [StatType.DAMAGE, StatType.SPEED, StatType.LUCK];
 		var bestStat = allStats[Std.random(allStats.length)];
 
@@ -168,16 +145,15 @@ class CharacterData
 		var worstOptions = allStats.filter(s -> s != bestStat);
 		var worstStat = worstOptions[Std.random(worstOptions.length)];
 
-		// Generate sprite frame: randomly pick male or female (0-3 = male, 4-7 = female)
-		var isFemale = Math.random() > 0.5;
-		var frameOffset = isFemale ? 4 : 0;
+		// Generate sprite frame based on gender from name data
+		var frameOffset = NameData.getFrameOffsetForGender(nameEntry.gender);
 
 		var spriteFrame = switch (weapon)
 		{
 			case BOW: 0 + frameOffset; // archer
 			case SWORD: 1 + frameOffset; // warrior
 			case WAND: 2 + frameOffset; // mage
-			case HALBERD: 3 + frameOffset; // halberdier
+			default: 0 + frameOffset; // fallback to archer
 		}
 
 		return new CharacterData(name, weapon, bestStat, worstStat, spriteFrame);
@@ -195,7 +171,6 @@ class CharacterData
 			bestStat: bestStat,
 			worstStat: worstStat,
 			level: level,
-			xp: xp,
 			maxHP: maxHP,
 			deathPhase: deathPhase
 		};
@@ -209,7 +184,6 @@ class CharacterData
 		var char = new CharacterData(data.name, data.weaponType, data.bestStat, data.worstStat, data.spriteFrame);
 
 		char.level = data.level;
-		char.xp = data.xp;
 		char.maxHP = data.maxHP;
 		char.deathPhase = data.deathPhase != null ? data.deathPhase : 0;
 		char.recalculateStats();
@@ -224,7 +198,6 @@ class CharacterData
 	{
 		var copy = new CharacterData(name, weaponType, bestStat, worstStat, spriteFrame);
 		copy.level = level;
-		copy.xp = xp;
 		copy.maxHP = maxHP;
 		copy.deathPhase = deathPhase;
 		copy.recalculateStats();

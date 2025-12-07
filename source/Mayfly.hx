@@ -1,16 +1,13 @@
 package;
 
 import flixel.FlxG;
-import flixel.FlxSprite;
 import flixel.math.FlxAngle;
 import flixel.math.FlxMath;
 import flixel.math.FlxPoint;
 import flixel.math.FlxVelocity;
 
-class Mayfly extends FlxSprite
+class Mayfly extends GameEntity
 {
-	public var shadow:Shadow;
-	public var currentHealth:Float = 1;
 
 	var moveSpeed:Float = 30;
 	var target:FlxPoint;
@@ -56,15 +53,7 @@ class Mayfly extends FlxSprite
 
 		reset(spawnX, spawnY);
 
-		if (shadow == null)
-		{
-			shadow = new Shadow(this, 0.5, 0.5, 0, height);
-			PlayState.current.shadowLayer.add(shadow);
-		}
-		else
-		{
-			shadow.revive();
-		}
+		setupShadow(0.5, 0.5, 0, height);
 	}
 
 	function pickNewTarget():Void
@@ -109,7 +98,7 @@ class Mayfly extends FlxSprite
 		}
 	}
 
-	public function takeDamage(damage:Float):Void
+	override public function takeDamage(damage:Float):Void
 	{
 		currentHealth -= damage;
 		if (currentHealth <= 0)
@@ -128,15 +117,5 @@ class Mayfly extends FlxSprite
 		}
 
 		kill();
-	}
-
-	override function kill():Void
-	{
-		super.kill();
-
-		if (shadow != null)
-		{
-			shadow.kill();
-		}
 	}
 }

@@ -139,6 +139,13 @@ class BossHealthBar extends FlxGroup
 		damageTween = FlxTween.tween(damageText, {alpha: 0}, 0.33, {startDelay: 0.5, ease: FlxEase.quadOut});
 	}
 
+	public function setAlpha(value:Float):Void
+	{
+		// Only set alpha on bars - letters and damage text manage their own alpha
+		damageBar.alpha = value;
+		healthBar.alpha = value;
+	}
+
 	override function update(elapsed:Float):Void
 	{
 		super.update(elapsed);

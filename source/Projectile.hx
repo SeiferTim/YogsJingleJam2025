@@ -50,6 +50,25 @@ class Projectile extends FlxSprite
 		acceleration.set(0, 0);
 	}
 
+	public function hitWall():Void
+	{
+		// Default behavior: stick to wall if sticksToWalls is true, otherwise die
+		if (sticksToWalls)
+		{
+			stick();
+		}
+		else
+		{
+			kill();
+		}
+	}
+
+	public function hitEnemy():Void
+	{
+		// Default behavior: just kill the projectile
+		kill();
+	}
+
 	override function revive():Void
 	{
 		super.revive();
@@ -57,6 +76,6 @@ class Projectile extends FlxSprite
 		stickTimer = 0;
 		lastX = x;
 		lastY = y;
-		sticksToWalls = true;
+		sticksToWalls = false;
 	}
 }

@@ -15,6 +15,8 @@ class Sword extends Weapon
 	var isSpinning:Bool = false;
 	var spinDuration:Float = 0;
 	var spinTimer:Float = 0;
+	var spinHitCooldown:Float = 0; // Cooldown between hits during spin
+	var spinHitInterval:Float = 1.0; // 1 second between hits
 	var hasHitThisSwing:Bool = false; // Track if this swing already dealt damage
 
 	public function new(Owner:FlxSprite, Projectiles:FlxTypedGroup<Projectile>)
@@ -24,33 +26,19 @@ class Sword extends Weapon
 		baseDamage = 12.0;
 		maxChargeTime = 1.0;
 
-		// Create slash hitbox - try to load custom graphic, fallback to placeholder
+		// Create slash hitbox
 		slashHitbox = new FlxSprite();
-		try
-		{
-			slashHitbox.loadGraphic("assets/images/sword-slash.png");
-		}
-		catch (e:Dynamic)
-		{
-			// Fallback to placeholder if sword-slash.png doesn't exist yet
-			slashHitbox.makeGraphic(20, 20, 0x88FFFFFF); // White, 50% transparent
-		}
+		slashHitbox.loadGraphic("assets/images/sword-slash.png");
+		// Set origin to left-center (0, height/2) so it rotates from the player's position
+		slashHitbox.origin.set(0, slashHitbox.height / 2);
 		slashHitbox.exists = false;
-		// Create spin attack hitbox - try to load custom graphic
+		// Create spin attack hitbox
 		spinHitbox = new FlxSprite();
-		try
+		spinHitbox.loadGraphic("assets/images/sword-spin.png", true, 32, 32);
+		// If it has frames, play animation
+		if (spinHitbox.frames.frames.length > 1)
 		{
-			spinHitbox.loadGraphic("assets/images/sword-spin.png", true, 32, 32);
-			// If it has frames, play animation
-			if (spinHitbox.frames.frames.length > 1)
-			{
-				spinHitbox.animation.add("spin", [for (i in 0...spinHitbox.frames.frames.length) i], 12, true);
-			}
-		}
-		catch (e:Dynamic)
-		{
-			// Fallback to placeholder - circular slash
-			spinHitbox.makeGraphic(32, 32, 0x66FFFFFF); // White, semi-transparent
+			spinHitbox.animation.add("spin", [for (i in 0...spinHitbox.frames.frames.length) i], 12, true);
 		}
 		spinHitbox.exists = false;
 	}
@@ -64,12 +52,15 @@ class Sword extends Weapon
 		{
 			spinTimer += elapsed;
 			
+			// Update hit cooldown
+			if (spinHitCooldown > 0)
+			{
+				spinHitCooldown -= elapsed;
+			}
+			
 			// Keep hitbox centered on owner
 			spinHitbox.x = owner.x + owner.width / 2 - spinHitbox.width / 2;
 			spinHitbox.y = owner.y + owner.height / 2 - spinHitbox.height / 2;
-
-			// Check for enemy hits
-			checkForHits(spinHitbox);
 
 			// End spin when duration expires
 			if (spinTimer >= spinDuration)
@@ -83,6 +74,44 @@ class Sword extends Weapon
 		{
 			slashHitbox.exists = false;
 			hasHitThisSwing = false; // Reset for next swing
+		}
+	}
+
+	override public function startCharge():Void
+	{
+		// Can't start charging while spinning
+		if (isSpinning)
+			return;
+
+		// Only proceed if cooldown is ready
+		if (cooldownTimer > 0)
+			return;
+
+		// Do an immediate sweep on button press AND set cooldown
+		if (!isCharging)
+		{
+			sweep();
+			cooldownTimer = cooldown / (1.0 + getOwnerMoveSpeed() * 0.5);
+
+			// Now start charging (ignoring cooldown since we just set it)
+			isCharging = true;
+			chargeTime = 0;
+		}
+	}
+
+	override public function releaseCharge():Void
+	{
+		if (isCharging)
+		{
+			// If charged enough for spin, do it WITHOUT setting cooldown (already set on press)
+			if (chargeTime >= Weapon.CHARGE_THRESHOLD)
+			{
+				fire(); // This calls spin(), no cooldown needed
+			}
+			// If released before threshold, sweep already happened on press, don't do anything
+
+			isCharging = false;
+			chargeTime = 0;
 		}
 	}
 
@@ -107,13 +136,11 @@ class Sword extends Weapon
 		slashHitbox.alpha = 1.0;
 		hasHitThisSwing = false; // Reset damage tracking for new swing
 
-		// Position hitbox in front of owner, ROTATED to match facing direction
-		var offsetDistance = 12;
 		var facingAngle = getOwnerFacingAngle();
 
-		// Position the slash sprite at the owner's center + offset in facing direction
-		slashHitbox.x = getOwnerX() + getOwnerWidth() / 2 + Math.cos(facingAngle) * offsetDistance - slashHitbox.width / 2;
-		slashHitbox.y = getOwnerY() + getOwnerHeight() / 2 + Math.sin(facingAngle) * offsetDistance - slashHitbox.height / 2;
+		// Position at player's center (origin is at left-center of slash sprite)
+		slashHitbox.x = getOwnerX() + getOwnerWidth() / 2;
+		slashHitbox.y = getOwnerY() + getOwnerHeight() / 2;
 
 		// Rotate the slash graphic to match the facing angle (convert radians to degrees)
 		slashHitbox.angle = facingAngle * (180 / Math.PI);
@@ -132,7 +159,7 @@ class Sword extends Weapon
 
 		isSpinning = true;
 		spinTimer = 0;
-		hasHitThisSwing = false;
+		spinHitCooldown = 0; // Reset hit cooldown
 
 		// Duration scales with charge: 0.3s at minimum to 1.5s at full charge
 		var chargePercent = getChargePercent();
@@ -157,14 +184,18 @@ class Sword extends Weapon
 	{
 		isSpinning = false;
 		spinTimer = 0;
+		spinHitCooldown = 0;
 		spinHitbox.exists = false;
-		hasHitThisSwing = false;
 	}
 
-	function checkForHits(hitbox:FlxSprite):Void
+	public function canDealSpinDamage():Bool
 	{
-		// This will be called from PlayState's collision detection
-		// We just need to track if we've already hit this spin
+		return spinHitCooldown <= 0;
+	}
+
+	public function markSpinHit():Void
+	{
+		spinHitCooldown = spinHitInterval; // 1 second cooldown
 	}
 
 	public function getSlashHitbox():FlxSprite

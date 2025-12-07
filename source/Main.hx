@@ -13,6 +13,9 @@ class Main extends Sprite
 		// Disable antialiasing for pixel-perfect rendering
 		FlxSprite.defaultAntialiasing = false;
 
+		// Initialize name database (compile-time embedded data)
+		NameData.init();
+
 		addChild(new FlxGame(256, 144, CharacterSelectState, 60, 60, true));
 	}
 }

@@ -3,8 +3,12 @@ package;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup.FlxTypedGroup;
+import flixel.math.FlxMath;
 import flixel.math.FlxPoint;
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
+import flixel.util.FlxTimer;
 
 /**
  * Boss Phase 2 - Upright bug form with legs and arms
@@ -43,7 +47,7 @@ class BossPhase02 extends FlxSprite implements IBoss
 	// Stats (IBoss interface)
 	public var maxHealth:Float = 300;
 	public var currentHealth:Float = 300;
-	public var bossName:String = "Reth'kira, the Sundering Edge which Cuts the Veil";
+	public var bossName:String = "Reth'kira, the Tooth which Cuts the Veil";
 
 	var moveSpeed:Float = 20;
 	public var isActive:Bool = false;
@@ -78,16 +82,62 @@ class BossPhase02 extends FlxSprite implements IBoss
 	var chargeSpeed:Float = 0;
 	var chargeStartX:Float = 0;
 	var chargeStartY:Float = 0;
-	var chargeMaxDistance:Float = 80; // Stop after traveling this far	// Reference point for all parts (center of thorax)
+	var chargeMaxDistance:Float = 80; // Stop after traveling this far
+
+	// Spit attack variables
+	var spitShotsFired:Int = 0;
+	var spitMaxShots:Int = 3;
+	var spitShotDelay:Float = 0.5;
+	var spitShotTimer:Float = 0;
+
+	// Plasma attack variables
+	var plasmasFired:Int = 0;
+	var plasmaMaxShots:Int = 3;
+	var plasmaFireDelay:Float = 0.1;
+	var plasmaFireTimer:Float = 0;
+	var plasmaChargeTimer:Float = 0;
+	var plasmaChargeDuration:Float = 1.0;
+	var plasmaAngles:Array<Float> = [45, -45, 0]; // Degrees
+
+	// Slash attack variables
+	var slashArmRaised:Bool = false;
+	var slashUseLeftArm:Bool = false;
+	var slashPauseTimer:Float = 0;
+	var slashMoveDuration:Float = 0.5;
+
+	// Time Pulse variables
+	var timePulseRocksToSpawn:Int = 0;
+	var timePulseRocksSpawned:Int = 0;
+	var timePulseRocksFired:Int = 0;
+	var timePulseRocks:Array<FlxSprite> = [];
+	var timePulseRockSpawnTimer:Float = 0;
+	var timePulseRockSpawnDelay:Float = 0.2;
+	var timePulseFullscreenEffect:FlxSprite = null;
+	var timePulsePlayerSlowActive:Bool = false;
+
+	// References
+	var spitProjectiles:FlxTypedGroup<Projectile>;
+	var plasmas:FlxTypedGroup<Plasma>;
+	var player:Player;
+
+	// Callback for spawning rocks (PlayState will handle adding them to scene)
+	public var onSpawnRock:FlxSprite->Void = null;
+	public var onSpawnFullscreenEffect:FlxSprite->Void = null;
+
+	// Reference point for all parts (center of thorax)
 	var centerX:Float = 0;
 	var centerY:Float = 0;
 
 	// Ground level - where leg tips touch (used for shadow positioning)
 	var groundLevel:Float = 0;
 
-	public function new(X:Float, Y:Float)
+	public function new(X:Float, Y:Float, Target:Player, ?SpitProjectiles:FlxTypedGroup<Projectile>, ?Plasmas:FlxTypedGroup<Plasma>)
 	{
 		super(X, Y);
+
+		player = Target;
+		spitProjectiles = SpitProjectiles;
+		plasmas = Plasmas;
 
 		shadows = [];
 
@@ -327,6 +377,35 @@ class BossPhase02 extends FlxSprite implements IBoss
 
 			case CHARGE_RECOVERY:
 				updateChargeRecovery(elapsed);
+			case SPIT_ATTACKING:
+				updateSpitAttack(elapsed);
+
+			case PLASMA_CHARGING:
+				updatePlasmaCharging(elapsed);
+
+			case PLASMA_FIRING:
+				updatePlasmaFiring(elapsed);
+
+			case SLASH_MOVE_TO_TOP:
+				updateSlashMoveToTop(elapsed);
+
+			case SLASH_RAISE_ARM:
+				updateSlashRaiseArm(elapsed);
+
+			case SLASH_STRIKE:
+				updateSlashStrike(elapsed);
+
+			case TIMEPULSE_SETUP:
+				updateTimePulseSetup(elapsed);
+
+			case TIMEPULSE_LEVITATE:
+				updateTimePulseLevitate(elapsed);
+
+			case TIMEPULSE_FIRE:
+				updateTimePulseFire(elapsed);
+
+			case TIMEPULSE_CLEANUP:
+				updateTimePulseCleanup(elapsed);
 		}
 	}
 
@@ -385,31 +464,96 @@ class BossPhase02 extends FlxSprite implements IBoss
 	{
 		walkCycleTimer += elapsed;
 
-		if (walkCycleTimer >= walkCycleDuration / 2)
+		// Full walk cycle duration
+		var progress = (walkCycleTimer % walkCycleDuration) / walkCycleDuration;
+
+		// Pair 1: left-fore + right-back (bob 0.0 - 0.5)
+		// Pair 2: right-fore + left-back (bob 0.5 - 1.0)
+
+		var pair1Bob = 0.0;
+		var pair2Bob = 0.0;
+
+		// Pair 1 rises and falls in first half
+		if (progress < 0.25)
 		{
-			// Switch which legs are raised
-			walkCycleTimer = 0;
-			currentWalkPhase = 1 - currentWalkPhase; // Toggle between 0 and 1
+			// Rising
+			pair1Bob = FlxMath.lerp(0, 2, progress / 0.25);
+		}
+		else if (progress < 0.5)
+		{
+			// Falling
+			pair1Bob = FlxMath.lerp(2, 0, (progress - 0.25) / 0.25);
 		}
 
-		// Apply leg offsets based on current phase
-		if (currentWalkPhase == 0)
+		// Pair 2 rises and falls in second half
+		if (progress >= 0.5 && progress < 0.75)
 		{
-			// Raise left-fore + right-back
-			leftForeLeg.offset.y = -2;
-			rightBackLeg.offset.y = -2;
-			// Lower right-fore + left-back
-			rightForeLeg.offset.y = 0;
-			leftBackLeg.offset.y = 0;
+			// Rising
+			pair2Bob = FlxMath.lerp(0, 2, (progress - 0.5) / 0.25);
 		}
-		else
+		else if (progress >= 0.75)
 		{
-			// Raise right-fore + left-back
-			rightForeLeg.offset.y = -2;
-			leftBackLeg.offset.y = -2;
-			// Lower left-fore + right-back
-			leftForeLeg.offset.y = 0;
-			rightBackLeg.offset.y = 0;
+			// Falling
+			pair2Bob = FlxMath.lerp(2, 0, (progress - 0.75) / 0.25);
+		}
+
+		// Apply leg bobs (offset.y negative raises them)
+		leftForeLeg.offset.y = -pair1Bob;
+		rightBackLeg.offset.y = -pair1Bob;
+		rightForeLeg.offset.y = -pair2Bob;
+		leftBackLeg.offset.y = -pair2Bob;
+
+		// Thorax bobs with average of both leg pairs
+		var thoraxBob = (pair1Bob + pair2Bob) / 2;
+		var baseAbdomenOffset = partOffsets.get(abdomen);
+		var baseThoraxOffset = partOffsets.get(thorax);
+		var baseHeadOffset = partOffsets.get(head);
+
+		if (baseAbdomenOffset != null)
+		{
+			var visualOffset = baseAbdomenOffset.y - groundLevel;
+			abdomen.offset.y = -(visualOffset - thoraxBob);
+		}
+
+		if (baseThoraxOffset != null)
+		{
+			var visualOffset = baseThoraxOffset.y - groundLevel;
+			thorax.offset.y = -(visualOffset - thoraxBob);
+		}
+
+		// Head bobs with thorax +/- 2px extra
+		if (baseHeadOffset != null)
+		{
+			var visualOffset = baseHeadOffset.y - groundLevel;
+			var headExtraBob = Math.sin(progress * Math.PI * 2) * 2;
+			head.offset.y = -(visualOffset - thoraxBob - headExtraBob);
+		}
+
+		// Arms bob with thorax
+		var baseLeftArmUpperOffset = partOffsets.get(leftArmUpper);
+		var baseRightArmUpperOffset = partOffsets.get(rightArmUpper);
+		var baseLeftArmClawOffset = partOffsets.get(leftArmClaw);
+		var baseRightArmClawOffset = partOffsets.get(rightArmClaw);
+
+		if (baseLeftArmUpperOffset != null)
+		{
+			var visualOffset = baseLeftArmUpperOffset.y - groundLevel;
+			leftArmUpper.offset.y = -(visualOffset - thoraxBob);
+		}
+		if (baseRightArmUpperOffset != null)
+		{
+			var visualOffset = baseRightArmUpperOffset.y - groundLevel;
+			rightArmUpper.offset.y = -(visualOffset - thoraxBob);
+		}
+		if (baseLeftArmClawOffset != null)
+		{
+			var visualOffset = baseLeftArmClawOffset.y - groundLevel;
+			leftArmClaw.offset.y = -(visualOffset - thoraxBob);
+		}
+		if (baseRightArmClawOffset != null)
+		{
+			var visualOffset = baseRightArmClawOffset.y - groundLevel;
+			rightArmClaw.offset.y = -(visualOffset - thoraxBob);
 		}
 	}
 
@@ -435,19 +579,28 @@ class BossPhase02 extends FlxSprite implements IBoss
 
 	function chooseNextAttack():Void
 	{
-		// For now, just alternate between charge and wander
-		// TODO: Add SPIT and SLASH
-		var choice = FlxG.random.int(0, 1);
+		// Stop walking before choosing attack
+		resetLegsToGround();
 
-		if (choice == 0)
+		// Choose random attack
+		var choice = FlxG.random.int(0, 4); // 5 attacks: CHARGE, SPIT, PLASMA, SLASH, TIMEPULSE
+		
+		switch (choice)
 		{
-			startChargeAttack();
-		}
-		else
-		{
-			// Wander more
-			attackState = WANDER;
-			attackTimer = FlxG.random.float(2.0, 4.0);
+			case 0:
+				startChargeAttack();
+			case 1:
+				startSpitAttack();
+			case 2:
+				startPlasmaAttack();
+			case 3:
+				startSlashAttack();
+			case 4:
+				startTimePulseAttack();
+			default:
+				// Fallback to wander
+				attackState = WANDER;
+				attackTimer = FlxG.random.float(2.0, 4.0);
 		}
 	}
 
@@ -587,6 +740,479 @@ class BossPhase02 extends FlxSprite implements IBoss
 		}
 	}
 
+	// ========== SPIT ATTACK ==========
+	function startSpitAttack():Void
+	{
+		attackState = SPIT_ATTACKING;
+		spitShotsFired = 0;
+		spitShotTimer = 0;
+
+		// Open mouth/pincers
+		if (mouth != null)
+			mouth.animation.play("open");
+		if (pincers != null)
+			pincers.animation.play("open");
+
+		trace("Boss starting spit attack (3 shots)!");
+	}
+
+	function updateSpitAttack(elapsed:Float):Void
+	{
+		spitShotTimer += elapsed;
+
+		if (spitShotTimer >= spitShotDelay && spitShotsFired < spitMaxShots)
+		{
+			fireSpitShot();
+			spitShotsFired++;
+			spitShotTimer = 0;
+		}
+
+		// After all shots fired, close mouth and return to wander
+		if (spitShotsFired >= spitMaxShots)
+		{
+			if (mouth != null)
+				mouth.animation.play("closed");
+			if (pincers != null)
+				pincers.animation.play("closed");
+
+			attackState = WANDER;
+			attackTimer = nextAttackCooldown;
+			pickNewWanderTarget();
+			trace("Spit attack complete!");
+		}
+	}
+
+	function fireSpitShot():Void
+	{
+		if (spitProjectiles == null || player == null)
+			return;
+
+		// Fire towards player from head position
+		var headCenterX = head.x + head.width / 2;
+		var headCenterY = head.y + head.height / 2;
+
+		var dx = player.x - headCenterX;
+		var dy = player.y - headCenterY;
+		var angle = Math.atan2(dy, dx);
+
+		var projectile:Projectile = spitProjectiles.getFirstAvailable(Projectile);
+		if (projectile == null)
+		{
+			projectile = new Projectile();
+			spitProjectiles.add(projectile);
+		}
+
+		projectile.reset(headCenterX, headCenterY);
+		projectile.damage = 0.7;
+		projectile.loadGraphic("assets/images/spit.png");
+
+		var speed:Float = 150;
+		projectile.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
+
+		trace("Fired spit shot " + (spitShotsFired + 1) + "/" + spitMaxShots);
+	}
+
+	// ========== PLASMA ATTACK ==========
+	function startPlasmaAttack():Void
+	{
+		attackState = PLASMA_CHARGING;
+		plasmasFired = 0;
+		plasmaChargeTimer = 0;
+
+		// Open mouth/pincers
+		if (mouth != null)
+			mouth.animation.play("open");
+		if (pincers != null)
+			pincers.animation.play("open");
+
+		trace("Boss charging plasma attack!");
+	}
+
+	function updatePlasmaCharging(elapsed:Float):Void
+	{
+		plasmaChargeTimer += elapsed;
+
+		// Charge up
+		if (plasmaChargeTimer >= plasmaChargeDuration)
+		{
+			attackState = PLASMA_FIRING;
+			plasmaFireTimer = 0;
+			trace("FIRING PLASMAS!");
+		}
+	}
+
+	function updatePlasmaFiring(elapsed:Float):Void
+	{
+		plasmaFireTimer += elapsed;
+
+		// Fire staggered plasma shots
+		if (plasmaFireTimer >= plasmaFireDelay && plasmasFired < plasmaMaxShots)
+		{
+			firePlasmaShot(plasmaAngles[plasmasFired]);
+			plasmasFired++;
+			plasmaFireTimer = 0;
+		}
+
+		// After all plasmas fired, close mouth and return to wander
+		if (plasmasFired >= plasmaMaxShots)
+		{
+			if (mouth != null)
+				mouth.animation.play("closed");
+			if (pincers != null)
+				pincers.animation.play("closed");
+
+			attackState = WANDER;
+			attackTimer = nextAttackCooldown;
+			pickNewWanderTarget();
+			trace("Plasma attack complete!");
+		}
+	}
+
+	function firePlasmaShot(angleDegrees:Float):Void
+	{
+		if (plasmas == null || player == null)
+			return;
+
+		// Fire from head position at specified angle offset
+		var headCenterX = head.x + head.width / 2;
+		var headCenterY = head.y + head.height / 2;
+
+		var plasma:Plasma = plasmas.recycle(Plasma);
+		if (plasma == null)
+		{
+			plasma = new Plasma();
+			plasmas.add(plasma);
+		}
+
+		// Spawn plasma and launch towards player (it will home)
+		plasma.spawn(headCenterX, headCenterY, player);
+
+		// Optionally add angle offset to initial velocity for spread
+		if (angleDegrees != 0)
+		{
+			var angleRad = angleDegrees * Math.PI / 180;
+			var currentSpeed = Math.sqrt(plasma.velocity.x * plasma.velocity.x + plasma.velocity.y * plasma.velocity.y);
+			var currentAngle = Math.atan2(plasma.velocity.y, plasma.velocity.x);
+			var newAngle = currentAngle + angleRad;
+			var newVelX = Math.cos(newAngle) * currentSpeed;
+			var newVelY = Math.sin(newAngle) * currentSpeed;
+			plasma.velocity.set(newVelX, newVelY);
+		}
+
+		trace("Fired plasma at " + angleDegrees + " degrees offset");
+	}
+
+	// ========== SLASH ATTACK ==========
+	function startSlashAttack():Void
+	{
+		attackState = SLASH_MOVE_TO_TOP;
+		attackTimer = slashMoveDuration;
+		slashArmRaised = false;
+		slashUseLeftArm = FlxG.random.bool(); // Randomly pick which arm
+
+		// Target: top center of arena
+		wanderTargetX = (FlxG.worldBounds.left + FlxG.worldBounds.right) / 2;
+		wanderTargetY = FlxG.worldBounds.top + 40;
+
+		trace("Boss starting slash attack with " + (slashUseLeftArm ? "left" : "right") + " arm!");
+	}
+
+	function updateSlashMoveToTop(elapsed:Float):Void
+	{
+		// Move to top center
+		var dx = wanderTargetX - x;
+		var dy = wanderTargetY - y;
+		var dist = Math.sqrt(dx * dx + dy * dy);
+
+		if (dist < 5 || attackTimer <= 0)
+		{
+			// Reached position
+			attackState = SLASH_RAISE_ARM;
+			slashPauseTimer = 0.1;
+
+			// Raise the chosen arm (flip vertically)
+			var armToRaise = slashUseLeftArm ? leftArmClaw : rightArmClaw;
+			if (armToRaise != null)
+			{
+				armToRaise.flipY = true;
+				slashArmRaised = true;
+			}
+
+			trace("Arm raised!");
+		}
+		else
+		{
+			// Keep moving
+			var angle = Math.atan2(dy, dx);
+			x += Math.cos(angle) * wanderSpeed * elapsed;
+			y += Math.sin(angle) * wanderSpeed * elapsed;
+			updateWalkingAnimation(elapsed);
+		}
+	}
+
+	function updateSlashRaiseArm(elapsed:Float):Void
+	{
+		slashPauseTimer -= elapsed;
+
+		if (slashPauseTimer <= 0)
+		{
+			attackState = SLASH_STRIKE;
+			slashPauseTimer = 0;
+
+			// Lower arm
+			var armToLower = slashUseLeftArm ? leftArmClaw : rightArmClaw;
+			if (armToLower != null)
+			{
+				armToLower.flipY = false;
+			}
+
+			// Fire air blast
+			fireSlashBlast();
+
+			trace("SLASH!");
+		}
+	}
+
+	function updateSlashStrike(elapsed:Float):Void
+	{
+		// Wait a moment then return to wander
+		if (attackTimer <= 0.3)
+		{
+			attackState = WANDER;
+			attackTimer = nextAttackCooldown;
+			pickNewWanderTarget();
+		}
+	}
+
+	function fireSlashBlast():Void
+	{
+		if (spitProjectiles == null || player == null)
+			return;
+
+		// Fire from the arm that slashed
+		var armSource = slashUseLeftArm ? leftArmClaw : rightArmClaw;
+		var sourceX = armSource.x + armSource.width / 2;
+		var sourceY = armSource.y + armSource.height;
+
+		// Angle towards player, clamped to max 60 degrees from vertical
+		var dx = player.x - sourceX;
+		var dy = player.y - sourceY;
+		var targetAngle = Math.atan2(dy, dx);
+
+		// Vertical is PI/2 (90 degrees), clamp to +/- 60 degrees
+		var verticalAngle = Math.PI / 2;
+		var maxOffset = Math.PI / 3; // 60 degrees in radians
+
+		var finalAngle = FlxMath.bound(targetAngle, verticalAngle - maxOffset, verticalAngle + maxOffset);
+
+		var projectile:Projectile = spitProjectiles.getFirstAvailable(Projectile);
+		if (projectile == null)
+		{
+			projectile = new Projectile();
+			spitProjectiles.add(projectile);
+		}
+
+		projectile.reset(sourceX, sourceY);
+		projectile.damage = 1.0;
+		projectile.loadGraphic("assets/images/air-slash.png"); // You'll need to create this
+		projectile.velocity.set(Math.cos(finalAngle) * 200, Math.sin(finalAngle) * 200);
+
+		trace("Fired slash blast!");
+	}
+
+	// ========== TIME PULSE ATTACK ==========
+	function startTimePulseAttack():Void
+	{
+		attackState = TIMEPULSE_SETUP;
+		timePulseRocksToSpawn = FlxG.random.int(4, 8);
+		timePulseRocksSpawned = 0;
+		timePulseRocksFired = 0;
+		timePulseRocks = [];
+		timePulseRockSpawnTimer = 0;
+
+		// Create fullscreen effect
+		if (timePulseFullscreenEffect == null)
+		{
+			timePulseFullscreenEffect = new FlxSprite();
+			timePulseFullscreenEffect.makeGraphic(FlxG.width, FlxG.height, 0x20800080); // Purple glow at 12.5% opacity
+			timePulseFullscreenEffect.scrollFactor.set(0, 0); // Fixed to camera
+			timePulseFullscreenEffect.alpha = 0;
+
+			// Add fullscreen effect to PlayState via callback
+			if (onSpawnFullscreenEffect != null)
+			{
+				onSpawnFullscreenEffect(timePulseFullscreenEffect);
+			}
+		}
+
+		// Fade in effect
+		FlxTween.tween(timePulseFullscreenEffect, {alpha: 1}, 0.5);
+
+		// Slow player
+		timePulsePlayerSlowActive = true;
+		if (player != null)
+		{
+			player.moveSpeed *= 0.5;
+		}
+
+		trace("Boss starting Time Pulse! Spawning " + timePulseRocksToSpawn + " rocks");
+	}
+
+	function updateTimePulseSetup(elapsed:Float):Void
+	{
+		// Transition to levitate state
+		attackState = TIMEPULSE_LEVITATE;
+		timePulseRockSpawnTimer = 0;
+	}
+
+	function updateTimePulseLevitate(elapsed:Float):Void
+	{
+		timePulseRockSpawnTimer += elapsed;
+
+		// Spawn rocks periodically
+		if (timePulseRockSpawnTimer >= timePulseRockSpawnDelay && timePulseRocksSpawned < timePulseRocksToSpawn)
+		{
+			spawnFloatingRock();
+			timePulseRocksSpawned++;
+			timePulseRockSpawnTimer = 0;
+		}
+
+		// After all rocks spawned, wait 0.2s then start firing
+		if (timePulseRocksSpawned >= timePulseRocksToSpawn)
+		{
+			attackTimer -= elapsed;
+			if (attackTimer <= -0.2)
+			{
+				attackState = TIMEPULSE_FIRE;
+				timePulseRockSpawnTimer = 0;
+			}
+		}
+	}
+
+	function updateTimePulseFire(elapsed:Float):Void
+	{
+		timePulseRockSpawnTimer += elapsed;
+
+		// Fire rocks one by one
+		if (timePulseRockSpawnTimer >= 0.15 && timePulseRocksFired < timePulseRocks.length)
+		{
+			fireFloatingRock(timePulseRocks[timePulseRocksFired]);
+			timePulseRocksFired++;
+			timePulseRockSpawnTimer = 0;
+		}
+
+		// After all rocks fired, clean up
+		if (timePulseRocksFired >= timePulseRocks.length)
+		{
+			attackState = TIMEPULSE_CLEANUP;
+			attackTimer = 0.5;
+		}
+	}
+
+	function updateTimePulseCleanup(elapsed:Float):Void
+	{
+		attackTimer -= elapsed;
+
+		if (attackTimer <= 0)
+		{
+			// Fade out fullscreen effect
+			if (timePulseFullscreenEffect != null)
+			{
+				FlxTween.tween(timePulseFullscreenEffect, {alpha: 0}, 0.5, {
+					onComplete: function(_)
+					{
+						timePulseFullscreenEffect.kill();
+					}
+				});
+			}
+
+			// Restore player speed
+			if (timePulsePlayerSlowActive && player != null)
+			{
+				player.moveSpeed *= 2; // Restore from 0.5x
+				timePulsePlayerSlowActive = false;
+			}
+
+			// Return to wander
+			attackState = WANDER;
+			attackTimer = nextAttackCooldown;
+			pickNewWanderTarget();
+			trace("Time Pulse complete!");
+		}
+	}
+
+	function spawnFloatingRock():Void
+	{
+		// Spawn rock at random position (not on player)
+		var rockX:Float = 0;
+		var rockY:Float = 0;
+		var validPosition = false;
+
+		while (!validPosition)
+		{
+			rockX = FlxG.random.float(FlxG.worldBounds.left + 20, FlxG.worldBounds.right - 20);
+			rockY = FlxG.random.float(FlxG.worldBounds.top + 20, FlxG.worldBounds.bottom - 20);
+
+			// Check distance from player
+			if (player != null)
+			{
+				var dx = rockX - player.x;
+				var dy = rockY - player.y;
+				var dist = Math.sqrt(dx * dx + dy * dy);
+
+				if (dist > 40)
+				{
+					validPosition = true;
+				}
+			}
+			else
+			{
+				validPosition = true;
+			}
+		}
+
+		// Create rock sprite (use a simple graphic for now)
+		var rock = new FlxSprite(rockX, rockY);
+		rock.makeGraphic(8, 8, FlxColor.GRAY);
+		rock.offset.y = 0; // Start at ground level
+
+		// Add rock to PlayState via callback
+		if (onSpawnRock != null)
+		{
+			onSpawnRock(rock);
+		}
+
+		// Tween rock upward
+		FlxTween.tween(rock.offset, {y: -16}, 0.5, {
+			onComplete: function(_)
+			{
+				// Start spinning
+				FlxTween.angle(rock, 0, 360, 1.0, {type: LOOPING});
+			}
+		});
+
+		timePulseRocks.push(rock);
+		trace("Spawned floating rock at " + rockX + ", " + rockY);
+	}
+
+	function fireFloatingRock(rock:FlxSprite):Void
+	{
+		if (rock == null || player == null)
+			return;
+
+		// Aim at player's current position
+		var dx = player.x - rock.x;
+		var dy = player.y - rock.y;
+		var angle = Math.atan2(dy, dx);
+
+		// Launch rock towards player
+		rock.velocity.set(Math.cos(angle) * 200, Math.sin(angle) * 200);
+
+		trace("Fired rock!");
+
+		// TODO: Handle rock collision with player/walls in PlayState
+	}
+
 	override function draw():Void
 	{
 		// Don't draw the invisible main sprite
@@ -642,13 +1268,13 @@ class BossPhase02 extends FlxSprite implements IBoss
 		abdomen.color = FlxColor.RED;
 		// FlxG.sound.play("assets/sounds/hit.wav", 0.5);
 
-		// Reset color after a moment
-		haxe.Timer.delay(function()
+		// Reset color after 0.1 seconds
+		new FlxTimer().start(0.1, function(_)
 		{
 			head.color = FlxColor.WHITE;
 			thorax.color = FlxColor.WHITE;
 			abdomen.color = FlxColor.WHITE;
-		}, 100);
+		});
 
 		if (currentHealth <= 0)
 		{
@@ -726,4 +1352,14 @@ enum AttackState
 	CHARGE_TELEGRAPH;
 	CHARGE_ATTACKING;
 	CHARGE_RECOVERY;
+	SPIT_ATTACKING;
+	PLASMA_CHARGING;
+	PLASMA_FIRING;
+	SLASH_MOVE_TO_TOP;
+	SLASH_RAISE_ARM;
+	SLASH_STRIKE;
+	TIMEPULSE_SETUP;
+	TIMEPULSE_LEVITATE;
+	TIMEPULSE_FIRE;
+	TIMEPULSE_CLEANUP;
 }

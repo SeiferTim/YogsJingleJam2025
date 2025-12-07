@@ -36,6 +36,8 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	var mode:BossMode = IDLE;
 	var modeTimer:Float = 0;
 	var isReady:Bool = false;
+	var lastAttackTime:Float = 0; // Track time since last attack
+	var attackCooldown:Float = 3.0; // Minimum time between attacks (wander period)
 
 	public var x(get, never):Float;
 	public var y(get, never):Float;
@@ -53,6 +55,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 
 	var attackCallback:Void->Void;
 	var spitProjectiles:FlxTypedGroup<Projectile>;
+	var plasmas:FlxTypedGroup<Plasma>;
+	var activePlasma:Plasma = null; // Track active plasma for attack completion
+	var player:Player;
 
 	var mouthOpen:Bool = false;
 	var pincersOpen:Bool = false;
@@ -61,7 +66,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 
 	public var shadows:Array<Shadow>;
 
-	public function new(X:Float, Y:Float, ?AttackCallback:Void->Void, ?SpitProjectiles:FlxTypedGroup<Projectile>)
+	public function new(X:Float, Y:Float, Target:Player, ?AttackCallback:Void->Void, ?SpitProjectiles:FlxTypedGroup<Projectile>, ?Plasmas:FlxTypedGroup<Plasma>)
 	{
 		super();
 
@@ -71,8 +76,10 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		baseY = Y;
 		targetX = X;
 		targetY = Y;
+		player = Target;
 		attackCallback = AttackCallback;
 		spitProjectiles = SpitProjectiles;
+		plasmas = Plasmas;
 
 		var lastSprite = new FlxSprite();
 		lastSprite.loadGraphic(AssetPaths.boss_phase_01_larva_last_segment__png);
@@ -218,6 +225,17 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		return headSegment.getCenter();
 	}
 
+	public function getMouthPosition():FlxPoint
+	{
+		// Mouth sprite is positioned relative to head
+		if (mouth != null)
+		{
+			return FlxPoint.get(mouth.x + mouth.width / 2, mouth.y + mouth.height / 2);
+		}
+		// Fallback to head center
+		return headSegment.getCenter();
+	}
+
 	public function moveTo(x:Float, y:Float, speed:Float, elapsed:Float):Void
 	{
 		wiggleTime += elapsed * wiggleFrequency;
@@ -248,19 +266,19 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		// Create shadows for each segment
 		// Width: 1.2x, Height: 1.0x, Anchor: center.x, center.y + 4
 
-		var lastShadow = new Shadow(lastSegment.sprite, 1.2, 1.0, 0, 4);
+		var lastShadow = new Shadow(lastSegment.sprite, 1.05, 1.0, 0, 4);
 		shadowLayer.add(lastShadow);
 		shadows.push(lastShadow);
 
-		var backShadow = new Shadow(backSegment.sprite, 1.2, 1.0, 0, 4);
+		var backShadow = new Shadow(backSegment.sprite, 1.1, 1.0, 0, 4);
 		shadowLayer.add(backShadow);
 		shadows.push(backShadow);
 
-		var foreShadow = new Shadow(foreSegment.sprite, 1.2, 1.0, 0, 4);
+		var foreShadow = new Shadow(foreSegment.sprite, 1.1, 1.0, 0, 4);
 		shadowLayer.add(foreShadow);
 		shadows.push(foreShadow);
 
-		var headShadow = new Shadow(headSegment.sprite, 1.2, 1.0, 0, 4);
+		var headShadow = new Shadow(headSegment.sprite, 1.1, 1.0, 0, 4);
 		shadowLayer.add(headShadow);
 		shadows.push(headShadow);
 		// No shadows for mouth or pincers
@@ -321,12 +339,18 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 				updateSpitAttack(elapsed);
 				updateSegments();
 				updateMouthAndPincers();
+			case PLASMA_ATTACK:
+				updatePlasmaAttack(elapsed);
+				updateSegments();
+				updateMouthAndPincers();
 		}
 	}
 
 	function updateIdle(elapsed:Float):Void
 	{
 		wiggleTime += elapsed * 3;
+		lastAttackTime += elapsed; // Track time for cooldown
+		
 		// Mouth stays closed in idle
 		setMouthOpen(false);
 
@@ -360,16 +384,23 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 			headY += Math.sin(angle) * moveSpeed * elapsed;
 		}
 
-		if (modeTimer > 5.0)
+		// Only attack if cooldown has passed and plasma isn't active
+		if (modeTimer > 5.0 && lastAttackTime >= attackCooldown && activePlasma == null)
 		{
 			modeTimer = 0;
-			if (FlxG.random.bool(50))
+			lastAttackTime = 0; // Reset cooldown
+			var rand = FlxG.random.int(0, 2);
+			if (rand == 0)
 			{
 				startSlamAttack();
 			}
-			else
+			else if (rand == 1)
 			{
 				startSpitAttack();
+			}
+			else
+			{
+				startPlasmaAttack();
 			}
 		}
 	}
@@ -603,6 +634,96 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		modeTimer = 0;
 	}
 
+	function startPlasmaAttack():Void
+	{
+		mode = PLASMA_ATTACK;
+		modeTimer = 0;
+		// Open mouth and pincers at start
+		setMouthOpen(true);
+		setPincersOpen(true);
+	}
+
+	function updatePlasmaAttack(elapsed:Float):Void
+	{
+		// Phase 1: Stop and open mouth/pincers (0-0.8s)
+		if (modeTimer < 0.8)
+		{
+			// Boss stops moving
+			setMouthOpen(true);
+			setPincersOpen(true);
+			return;
+		}
+		// Phase 2: Charge plasma in mouth (0.8-2.0s)
+		else if (modeTimer < 2.0)
+		{
+			// Keep mouth and pincers open during charge
+			setMouthOpen(true);
+			setPincersOpen(true);
+
+			// Spawn charging plasma if not exists
+			if (activePlasma == null && plasmas != null)
+			{
+				// Get mouth position
+				var mouthPos = getMouthPosition();
+				activePlasma = plasmas.recycle(Plasma);
+				activePlasma.startCharging(mouthPos.x, mouthPos.y);
+				mouthPos.put();
+			}
+			// Update plasma position to follow mouth
+			if (activePlasma != null && activePlasma.isCharging)
+			{
+				var mouthPos = getMouthPosition();
+				activePlasma.setPosition(mouthPos.x - activePlasma.width / 2, mouthPos.y - activePlasma.height / 2);
+				mouthPos.put();
+			}
+			return;
+		}
+		// Phase 3: Head jerk up (2.0-2.15s)
+		else if (modeTimer < 2.15)
+		{
+			// Keep mouth and pincers open during windup
+			setMouthOpen(true);
+			setPincersOpen(true);
+
+			// Quick head bob up (positive offset moves visual up)
+			headSegment.sprite.offset.y = 8;
+			return;
+		}
+		// Phase 4: Fire plasma (2.15-2.3s)
+		else if (modeTimer < 2.3)
+		{
+			// Keep mouth and pincers open during fire
+			setMouthOpen(true);
+			setPincersOpen(true);
+
+			// Head snaps down (negative offset moves visual down)
+			headSegment.sprite.offset.y = -4;
+
+			// Fire plasma at 2.15s exactly
+			if (modeTimer >= 2.15 && activePlasma != null && activePlasma.isCharging)
+			{
+				activePlasma.launch(player);
+				activePlasma.onExplode = function(p:Plasma)
+				{
+					// When plasma explodes, clear reference
+					activePlasma = null;
+				};
+			}
+			return;
+		}
+		// Phase 5: Close mouth and return to idle (2.3s+)
+		else
+		{
+			// Reset head offset
+			headSegment.sprite.offset.y = 0;
+			setMouthOpen(false);
+			setPincersOpen(false);
+			mode = IDLE;
+			modeTimer = 0;
+			pickNewWanderTarget();
+		}
+	}
+
 	function pickNewWanderTarget():Void
 	{
 		var arenaCenterX = FlxG.worldBounds.width / 2;
@@ -671,4 +792,5 @@ enum BossMode
 	IDLE;
 	SLAM_ATTACK;
 	SPIT_ATTACK;
+	PLASMA_ATTACK;
 }

@@ -14,13 +14,12 @@ class ShadowLayer extends FlxSprite
 {
 	public var shadows:FlxTypedGroup<Shadow>;
 	private var shadowBitmap:BitmapData;
-	private var shadowOpacity:Float = 0.7;
+	private var shadowOpacity:Float = 0.33;
 
-	public function new(Width:Int, Height:Int, ?Opacity:Float = 0.7)
+	public function new(Width:Int, Height:Int)
 	{
 		super(0, 0);
-		
-		shadowOpacity = Opacity;
+
 		shadows = new FlxTypedGroup<Shadow>();
 		
 		// Create bitmap to render shadows onto

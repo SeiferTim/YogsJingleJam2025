@@ -13,12 +13,17 @@ import flixel.util.FlxColor;
  * Spawns with fade-in animation at random position above arena midpoint
  * Uses the same weapon they died with
  */
-class Ghost extends FlxSprite
+class Ghost extends GameEntity
 {
-	public var shadow:Shadow;
+	// Static spawn counter for animation stagger - resets at phase start
+	private static var spawnCounter:Int = 0;
+
+	public static function resetSpawnCounter():Void
+	{
+		spawnCounter = 0;
+	}
+	
 	public var characterData:CharacterData;
-	public var currentHealth:Float = 10;
-	public var weapon:Weapon; // The ghost's weapon instance
 
 	// AI
 	var player:Player;
@@ -44,7 +49,7 @@ class Ghost extends FlxSprite
 		kill();
 	}
 
-	public function spawn(Data:CharacterData, Player:Player, Projectiles:FlxTypedGroup<Projectile>):Void
+	public function spawn(Data:CharacterData, Player:Player, Projectiles:FlxTypedGroup<Projectile>, ?eggX:Float, ?eggY:Float):Void
 	{
 		characterData = Data;
 		player = Player;
@@ -53,16 +58,20 @@ class Ghost extends FlxSprite
 		// Convert hearts to HP: 10 HP per heart (maxHP is number of hearts)
 		currentHealth = Data.maxHP * 10;
 		animation.frameIndex = Data.spriteFrame;
-		attackCooldown = 3.0 / (1.0 + Data.moveSpeed * 0.5);
+
+		// Base cooldown based on weapon type (wands fire slower)
+		var baseCooldown = switch (Data.weaponType)
+		{
+			case WAND: 5.0; // Wands are slower
+			case BOW: 3.0; // Normal speed
+			case SWORD | HALBERD: 2.5; // Melee slightly faster
+		}
+		// Ghosts are slower than they were in life (nerf their speed stat by 50%)
+		var nerfedSpeed = Data.moveSpeed * 0.5;
+		attackCooldown = baseCooldown / (1.0 + nerfedSpeed * 0.5);
 
 		// Create weapon instance based on character's weapon type
-		weapon = switch (Data.weaponType)
-		{
-			case BOW: new Arrow(this, Projectiles);
-			case SWORD: new Sword(this, Projectiles);
-			case WAND: new Wand(this, Projectiles);
-			case HALBERD: new Halberd(this, Projectiles);
-		}
+		weapon = createWeapon(Data.weaponType, Projectiles);
 
 		// Adjust optimal distance based on weapon type
 		optimalDistance = switch (Data.weaponType)
@@ -71,27 +80,64 @@ class Ghost extends FlxSprite
 			case SWORD | HALBERD: 16; // Melee weapons get close
 		}
 
-		// Spawn above arena midpoint
+		// Spawn above arena midpoint, avoiding egg area if coordinates provided
 		var arenaHeight = FlxG.worldBounds.height;
 		var upperArea = FlxG.worldBounds.top + (arenaHeight * 0.4);
-		var spawnX = FlxG.random.float(FlxG.worldBounds.left + 16, FlxG.worldBounds.right - 24);
-		var spawnY = FlxG.random.float(FlxG.worldBounds.top + 16, upperArea);
+		var spawnX:Float;
+		var spawnY:Float;
+		var attempts = 0;
+		var maxAttempts = 20;
+
+		do
+		{
+			spawnX = FlxG.random.float(FlxG.worldBounds.left + 16, FlxG.worldBounds.right - 24);
+			spawnY = FlxG.random.float(FlxG.worldBounds.top + 16, upperArea);
+			attempts++;
+		}
+		while (eggX != null
+				&& eggY != null
+				&& Math.sqrt(Math.pow(spawnX - eggX, 2) + Math.pow(spawnY - eggY, 2)) < 64
+				&& attempts < maxAttempts);
 
 		reset(spawnX, spawnY);
 
-		if (shadow == null)
-		{
-			shadow = new Shadow(this, 1.2, 0.25, 0, height / 2);
-			PlayState.current.shadowLayer.add(shadow);
-		}
-		else
-		{
-			shadow.revive();
-		}
+		setupShadow(1.2, 0.25, 0, height / 2);
 
-		// Fade in animation
+		// Flashy spawn effect: start invisible, white, and small
 		alpha = 0;
-		FlxTween.tween(this, {alpha: 0.8}, 0.5, {ease: FlxEase.quadOut});
+		color = FlxColor.WHITE;
+		scale.set(0.5, 0.5);
+
+		// Use static counter for stagger (0.5s per ghost spawned before this one)
+		var staggerDelay = spawnCounter * 0.5;
+		spawnCounter++; // Increment for next ghost
+
+		// Pop in: fade to full + scale up + white flash (1 second with stagger)
+		FlxTween.tween(this, {alpha: 1.0}, 1.0, {
+			startDelay: staggerDelay,
+			ease: FlxEase.backOut
+		});
+
+		FlxTween.tween(this.scale, {x: 1.2, y: 1.2}, 1.0, {
+			startDelay: staggerDelay,
+			ease: FlxEase.backOut,
+			onComplete: function(_)
+			{
+				// Settle: fade to semi-transparent + scale to normal + color to gray (quick)
+				FlxTween.tween(this, {alpha: 0.85}, 0.2, {
+					startDelay: 0.1
+				});
+				FlxTween.tween(this.scale, {x: 1.0, y: 1.0}, 0.2, {
+					startDelay: 0.1
+				});
+			}
+		});
+
+		// Color flash: white -> gray over the pop-in duration
+		FlxTween.color(this, 1.0, FlxColor.WHITE, FlxColor.GRAY, {
+			startDelay: staggerDelay,
+			ease: FlxEase.quadOut
+		});
 	}
 
 	override function update(elapsed:Float):Void
@@ -118,14 +164,17 @@ class Ghost extends FlxSprite
 
 		facingAngle = Math.atan2(dy, dx);
 
+		// Ghosts are slower/less agile than they were in life (50% speed nerf)
+		var nerfedSpeed = characterData.moveSpeed * 0.5;
+
 		// Maintain optimal distance
 		if (dist > optimalDistance + 16)
 		{
-			velocity.set(Math.cos(facingAngle) * baseSpeed * characterData.moveSpeed, Math.sin(facingAngle) * baseSpeed * characterData.moveSpeed);
+			velocity.set(Math.cos(facingAngle) * baseSpeed * nerfedSpeed, Math.sin(facingAngle) * baseSpeed * nerfedSpeed);
 		}
 		else if (dist < optimalDistance - 16)
 		{
-			velocity.set(-Math.cos(facingAngle) * baseSpeed * characterData.moveSpeed, -Math.sin(facingAngle) * baseSpeed * characterData.moveSpeed);
+			velocity.set(-Math.cos(facingAngle) * baseSpeed * nerfedSpeed, -Math.sin(facingAngle) * baseSpeed * nerfedSpeed);
 		}
 		else
 		{
@@ -150,11 +199,10 @@ class Ghost extends FlxSprite
 		if (weapon == null)
 			return;
 
-		// For ranged weapons (bow/wand): start charge and immediately release
+		// For ranged weapons (bow/wand): use tap for immediate fire
 		if (Std.isOfType(weapon, Arrow) || Std.isOfType(weapon, Wand))
 		{
-			weapon.startCharge();
-			weapon.releaseCharge();
+			weapon.tap(); // Just tap instead of charge+release
 		}
 		// For melee weapons (sword/halberd): trigger attack
 		else if (Std.isOfType(weapon, Sword))
@@ -169,7 +217,7 @@ class Ghost extends FlxSprite
 		}
 	}
 
-	public function takeDamage(damage:Float):Void
+	override public function takeDamage(damage:Float):Void
 	{
 		currentHealth -= damage;
 		
@@ -187,11 +235,20 @@ class Ghost extends FlxSprite
 
 	override function kill():Void
 	{
+		// Stop movement immediately
+		velocity.set(0, 0);
+		active = false;
+	
 		// Trigger death callback FIRST (spawns soul orb)
 		if (onDeath != null)
 			onDeath(this);
 
-		// Switch to death frame (living frame + 8)
+		// If characterData is null (e.g., during initialization), just kill immediately
+		if (characterData == null)
+		{
+			super.kill(); // GameEntity handles shadow cleanup
+			return;
+		} // Switch to death frame (living frame + 8)
 		var deathFrame = characterData.spriteFrame + 8;
 		
 		// Check if death frame exists (players.png should have 16 frames: 0-7 living, 8-15 dead)
@@ -218,10 +275,7 @@ class Ghost extends FlxSprite
 
 	function actuallyKill():Void
 	{
-		super.kill();
 		FlxTween.cancelTweensOf(this);
-
-		if (shadow != null)
-			shadow.kill();
+		super.kill(); // GameEntity handles shadow cleanup
 	}
 }
