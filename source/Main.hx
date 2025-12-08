@@ -1,5 +1,7 @@
 package;
 
+import axollib.AxolAPI;
+import axollib.SpookyAxolversaryState;
 import flixel.FlxG;
 import flixel.FlxGame;
 import flixel.FlxSprite;
@@ -16,6 +18,11 @@ class Main extends Sprite
 		// Initialize name database (compile-time embedded data)
 		NameData.init();
 
-		addChild(new FlxGame(256, 144, CharacterSelectState, 60, 60, true));
+		// Set up AxolAPI configuration
+		AxolAPI.firstState = TitleState;
+		AxolAPI.init = GameGlobals.init;
+
+		// Start with modified splash screen
+		addChild(new FlxGame(256, 144, SpookyAxolversaryState, 60, 60, true));
 	}
 }

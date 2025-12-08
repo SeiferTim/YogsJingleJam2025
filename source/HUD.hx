@@ -11,12 +11,15 @@ import flixel.util.FlxColor;
 
 using flixel.util.FlxSpriteUtil;
 
+@:keep
 class HUD extends FlxGroup
 {
 	var weaponCooldownIcon:CooldownIcon;
 	var dodgeCooldownIcon:CooldownIcon;
 	var hearts:Array<FlxSprite>;
+
 	public var bossHealthBar:BossHealthBar;
+
 	var characterNameText:FlxBitmapText;
 	var lvIcon:FlxSprite; // "lv" graphic
 	var levelValueText:FlxBitmapText; // Player level number
@@ -26,49 +29,34 @@ class HUD extends FlxGroup
 
 	var padding:Int = 3; // Horizontal and vertical padding
 
-	// Custom alpha management
-	var _alpha:Float = 1.0;
-
 	// Expose as a property so PlayState can assign `hud.alpha = value`.
-	public var alpha(get, set):Float;
-
-	public function setAlpha(value:Float):Void
-	{
-		_alpha = value;
-		// Apply alpha to all members EXCEPT boss health bar (it manages its own alpha)
-		forEach(function(member:FlxBasic)
-		{
-			if (member == bossHealthBar)
-				return; // Skip boss health bar
-
-			if (Std.isOfType(member, FlxSprite))
-			{
-				var sprite:FlxSprite = cast member;
-				sprite.alpha = value;
-			}
-			else if (Std.isOfType(member, FlxGroup))
-			{
-				var group:FlxGroup = cast member;
-				group.forEach(function(child:FlxBasic)
-				{
-					if (Std.isOfType(child, FlxSprite))
-					{
-						var sprite:FlxSprite = cast child;
-						sprite.alpha = value;
-					}
-				});
-			}
-		});
-	}
-
-	function get_alpha():Float
-	{
-		return _alpha;
-	}
+	public var alpha(default, set):Float = 1.0;
 
 	function set_alpha(value:Float):Float
 	{
-		setAlpha(value);
+		alpha = value;
+
+		// Apply alpha to specific HUD elements that have alpha property
+		// Note: bossHealthBar manages its own alpha, so we skip it
+
+		// Set alpha on cooldown icons (FlxSpriteGroup - has alpha property)
+		weaponCooldownIcon.alpha = value;
+		dodgeCooldownIcon.alpha = value;
+
+		// Set alpha on hearts
+		for (heart in hearts)
+		{
+			heart.alpha = value;
+		}
+		
+		// Set alpha on character name and level displays
+		if (characterNameText != null)
+			characterNameText.alpha = value;
+		if (lvIcon != null)
+			lvIcon.alpha = value;
+		if (levelValueText != null)
+			levelValueText.alpha = value;
+		
 		return value;
 	}
 
@@ -155,6 +143,28 @@ class HUD extends FlxGroup
 
 	function updateHearts():Void
 	{
+		// Check if we need to add more hearts (player leveled up)
+		if (hearts.length < player.maxHP)
+		{
+			var currentY = padding;
+			if (characterNameText != null)
+				currentY += Std.int(characterNameText.height) + 2;
+
+			// Add missing hearts
+			for (i in hearts.length...player.maxHP)
+			{
+				var heart = new FlxSprite(padding + i * 8, currentY);
+				heart.loadGraphic("assets/images/heart.png", true, 8, 8);
+				heart.animation.add("full", [0]);
+				heart.animation.add("empty", [1]);
+				heart.animation.play("full");
+				heart.scrollFactor.set(0, 0);
+				add(heart);
+				hearts.push(heart);
+			}
+		}
+
+		// Update heart display
 		for (i in 0...hearts.length)
 		{
 			// Show full heart if we have HP, empty heart if we don't
@@ -183,11 +193,21 @@ class HUD extends FlxGroup
 		var cooldownPercent = player.dodgeTimer / player.dodgeCooldown;
 		dodgeCooldownIcon.updateCooldown(cooldownPercent);
 	}
+
 	public function setBossHealthVisible(visible:Bool):Void
 	{
 		if (bossHealthBar != null)
 			bossHealthBar.visible = visible;
 	}
+	public function setBoss(newBoss:IBoss):Void
+	{
+		boss = newBoss;
+		if (bossHealthBar != null)
+		{
+			bossHealthBar.setBoss(newBoss);
+		}
+	}
+
 	public function revealBossName():Void
 	{
 		if (bossHealthBar != null)

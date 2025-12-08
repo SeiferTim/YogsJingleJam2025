@@ -21,6 +21,7 @@ class PlayState extends FlxState
 
 	public var map:FlxTilemap;
 	public var player:Player;
+
 	var selectedCharacter:CharacterData; // Character selected in CharacterSelectState
 
 	public var projectiles:FlxTypedGroup<Projectile>; // Made public for MagicBallProjectile lifespan detection
@@ -30,6 +31,7 @@ class PlayState extends FlxState
 
 	public var mayflies:FlxTypedGroup<Mayfly>; // Made public for MagicBallProjectile.findNearestEnemy()
 	public var ghosts:FlxTypedGroup<Ghost>; // Made public for MagicBallProjectile.findNearestEnemy()
+
 	var whiteGhosts:FlxTypedGroup<FlxSprite>; // White sprite overlay for ghost spawn animation
 	var hearts:FlxTypedGroup<HeartPickup>;
 	var spiritOrbs:FlxTypedGroup<SpiritOrb>;
@@ -38,10 +40,13 @@ class PlayState extends FlxState
 	public var hud:HUD;
 	// Boss phases
 	public var boss:BossPhase01Larva; // Made public for MagicBallProjectile.findNearestEnemy()
+
 	var boss2:BossPhase02;
+	var boss3:BossPhase03;
 	var currentBossPhase:Int = 1;
-	
-	var cameraTarget:FlxObject;
+
+	public var cameraTarget:FlxObject;
+
 	var cinematics:CinematicManager;
 
 	// Mayfly spawning
@@ -54,10 +59,14 @@ class PlayState extends FlxState
 	var introTimer:Float = 0;
 	var fadeOverlay:FlxSprite;
 	var eggSprite:FlxSprite;
-	var cocoonSprite:FlxSprite;
+
+	public var cocoonSprite:FlxSprite;
+
 	var playerActive:Bool = false;
+
 	// Phase transition
 	public var gameState:GameState = INTRO;
+
 	var transitionTimer:Float = 0;
 
 	public function new(?character:CharacterData)
@@ -71,6 +80,10 @@ class PlayState extends FlxState
 	{
 		super.create();
 		Actions.init();
+
+		// Set cursor to RETICLE for gameplay
+		if (GameGlobals.mouseHandler != null)
+			GameGlobals.mouseHandler.cursor = RETICLE;
 
 		// Enable pixel-perfect rendering
 		FlxG.camera.pixelPerfectRender = true;
@@ -117,6 +130,7 @@ class PlayState extends FlxState
 		eggSprite.animation.frameIndex = 0;
 		eggSprite.visible = false;
 		add(eggSprite);
+
 		// Cocoon sprite (for phase transitions)
 		cocoonSprite = new FlxSprite(0, 0);
 		cocoonSprite.loadGraphic("assets/images/boss-phase-01-cocoon.png");
@@ -153,12 +167,10 @@ class PlayState extends FlxState
 				add(halberd.getJabHitbox());
 			}
 		}
-		
+
 		add(player);
 
-		// Create player shadow
-		// Width: 1.2x, Height: 0.25x, Anchor: center.x, y + height
-		player.shadow = new Shadow(player, 1.2, 0.25, 0, player.height / 2);
+		// Add player shadow to shadow layer (created in Player constructor)
 		shadowLayer.add(player.shadow);
 
 		// Add player reticle and dizzy sprite to scene
@@ -215,12 +227,45 @@ class PlayState extends FlxState
 
 	override public function update(elapsed:Float)
 	{
-		// DEBUG: Press T to test phase transition
+		// Pause menu
+		#if !FLX_NO_KEYBOARD
+		if (FlxG.keys.justPressed.P || FlxG.keys.justPressed.ESCAPE)
+		{
+			if (gameState == PHASE_1_ACTIVE || gameState == PHASE_2_ACTIVE)
+			{
+				openSubState(new PauseSubState());
+				return;
+			}
+		}
+		#end
+
+		#if !FLX_NO_GAMEPAD
+		var gamepad = FlxG.gamepads.lastActive;
+		if (gamepad != null && gamepad.justPressed.START)
+		{
+			if (gameState == PHASE_1_ACTIVE || gameState == PHASE_2_ACTIVE)
+			{
+				openSubState(new PauseSubState());
+				return;
+			}
+		}
+		#end
+
+		#if debug
+		// DEBUG: Press T to test phase transition (insta-kill boss)
 		if (FlxG.keys.justPressed.T && gameState == PHASE_1_ACTIVE)
 		{
 			trace("DEBUG: Force Phase 1 death");
 			boss.currentHealth = 0;
 		}
+
+		// DEBUG: Press Y to level up player for testing damage scaling
+		if (FlxG.keys.justPressed.Y)
+		{
+			player.levelUp(1);
+			trace("DEBUG: Player leveled up to level " + player.level);
+		}
+		#end
 
 		if (gameState == INTRO)
 		{
@@ -258,9 +303,34 @@ class PlayState extends FlxState
 			updatePhase1_5(elapsed);
 			// IMPORTANT: Spawn MORE mayflies during cocoon phase so player can heal!
 			updateMayflySpawning(elapsed);
-			
+
 			checkProjectileCollisions();
 			// No boss collisions during cocoon phase
+		}
+		else if (gameState == PHASE_2_HATCH)
+		{
+			// Phase 2 hatch is tween-based, no update needed
+		}
+		else if (gameState == PHASE_2_ACTIVE)
+		{
+			// Check if boss Phase 2 is defeated
+			if (boss2 != null && boss2.currentHealth <= 0)
+			{
+				trace("Phase 2 boss defeated!");
+				axollib.AxolAPI.sendEvent("PHASE_2_DEFEATED");
+				startPhase2DeathSequence();
+			}
+
+			// Update Mayfly spawning
+			updateMayflySpawning(elapsed);
+
+			checkProjectileCollisions();
+			checkMeleeWeaponCollisions(); // Check melee vs boss2
+			checkPhase2Collisions();
+		}
+		else if (gameState == PHASE_2_DEATH)
+		{
+			updatePhase2DeathSequence(elapsed);
 		}
 		else if (gameState == PHASE_2_5_ACTIVE)
 		{
@@ -270,27 +340,31 @@ class PlayState extends FlxState
 			checkProjectileCollisions();
 			checkGhostCollisions();
 		}
-		else if (gameState == PHASE_2_ACTIVE)
+		else if (gameState == PHASE_3_ACTIVE)
 		{
-			// Check if boss Phase 2 is defeated
-			if (boss2 != null && boss2.currentHealth <= 0)
+			// Check if boss Phase 3 is defeated
+			if (boss3 != null && boss3.currentHealth <= 0)
 			{
-				trace("Phase 2 boss defeated!");
-				// TODO: Implement Phase 2 death sequence similar to Phase 1
-				// For now just go straight to game over
-				gameState = PHASE_2_DEATH;
+				trace("Phase 3 boss defeated! GAME WON!");
+				axollib.AxolAPI.sendEvent("PHASE_3_DEFEATED");
+				startPhase3DeathSequence();
 			}
 
 			// Update Mayfly spawning
 			updateMayflySpawning(elapsed);
-			
+
 			checkProjectileCollisions();
-			checkMeleeWeaponCollisions(); // Check melee vs boss2
-			checkPhase2Collisions();
+			checkMeleeWeaponCollisions(); // Check melee vs boss3
+			checkPhase3Collisions();
 		}
-		
+		else if (gameState == PHASE_3_DEATH)
+		{
+			updatePhase3DeathSequence(elapsed);
+		}
+
 		super.update(elapsed);
 	}
+
 	function startIntroSequence():Void
 	{
 		introState = FADE_IN;
@@ -298,6 +372,8 @@ class PlayState extends FlxState
 
 		// Make egg visible BEFORE fade starts
 		eggSprite.visible = true;
+		// Add egg shadow
+		shadowLayer.add(new Shadow(eggSprite, "bossSegment", 0, 4));
 
 		FlxTween.tween(fadeOverlay, {alpha: 0}, 1.0, {
 			ease: FlxEase.quadOut,
@@ -322,7 +398,7 @@ class PlayState extends FlxState
 				{
 					FlxTween.tween(cameraTarget, {y: eggSprite.y + eggSprite.height / 2}, 2.0, {
 						ease: FlxEase.quadInOut,
-						onComplete: _ -> 
+						onComplete: _ ->
 						{
 							introState = EGG_PAUSE_1;
 							introTimer = 0;
@@ -335,18 +411,27 @@ class PlayState extends FlxState
 
 			case SCROLLING: // FlxTween handles
 
+			case PHASE_0_5_CINEMATIC: // Cinematics handle player movement and camera pan
+
 			case EGG_PAUSE_1:
 				if (introTimer > 0.4)
+				{
+					Sound.playSound("egg_crack_1");
 					advanceIntro(EGG_CRACK_1);
+				}
 
 			case EGG_CRACK_1:
 				eggSprite.animation.frameIndex = 1;
+
 				if (introTimer > 0.05)
 					advanceIntro(EGG_PAUSE_2);
 
 			case EGG_PAUSE_2:
 				if (introTimer > 0.4)
+				{
+					Sound.playSound("egg_crack_2");
 					advanceIntro(EGG_CRACK_2);
+				}
 
 			case EGG_CRACK_2:
 				eggSprite.animation.frameIndex = 2;
@@ -355,7 +440,10 @@ class PlayState extends FlxState
 
 			case EGG_PAUSE_3:
 				if (introTimer > 0.4)
+				{
+					Sound.playSound("egg_crack_emerge");
 					advanceIntro(EGG_CRACK_REST);
+				}
 
 			case EGG_CRACK_REST:
 				eggSprite.animation.frameIndex = introTimer < 0.3 ? 2 + Math.floor((introTimer / 0.3) * 3) : 4;
@@ -425,7 +513,10 @@ class PlayState extends FlxState
 					eggSprite.visible = false;
 
 				if (introTimer > 1.0)
+				{
 					boss.closeRoar();
+					Sound.playMusic("phase 1"); // Start Phase 1 boss music
+				}
 				if (introTimer > 1.5)
 				{
 					FlxTween.tween(cameraTarget, {x: player.x, y: player.y}, 0.5, {
@@ -456,10 +547,19 @@ class PlayState extends FlxState
 	{
 		// Filter ghosts: only spawn those who died in Phase 0 or Phase 1
 		var allGhosts = GameData.getDeadCharacters();
+		trace("=== CHECKING FOR GHOSTS ===");
+		trace("Total dead characters: " + allGhosts.length);
+		for (ghost in allGhosts)
+		{
+			trace("  - " + ghost.name + " (Level " + ghost.level + ") died in phase " + ghost.deathPhase);
+		}
+
 		var phase0And1Ghosts = allGhosts.filter(function(char:CharacterData)
 		{
-			return char.deathPhase <= 1; // Phase 0 or Phase 1 deaths
+			return char.deathPhase == 0; // Phase 0, 0.5, or 1 deaths
 		});
+
+		trace("Phase 0/1 ghosts (deathPhase==0): " + phase0And1Ghosts.length);
 
 		if (phase0And1Ghosts.length > 0)
 		{
@@ -485,7 +585,7 @@ class PlayState extends FlxState
 	var ghostBatches:Array<Array<CharacterData>> = [];
 	var currentBatchIndex:Int = 0;
 	var currentBatchSpawned:Bool = false;
-	var maxGhostsPerBatch:Int = 3;
+	var maxGhostsPerBatch:Int = 999; // Effectively unlimited - spawn all ghosts at once
 
 	function startPhase0_5Ghosts(ghostsToSpawn:Array<CharacterData>):Void
 	{
@@ -511,7 +611,7 @@ class PlayState extends FlxState
 		cinematics.panTo(player.x, player.y, 1.0, 1.0, function()
 		{
 			trace("Phase 0.5: Camera on player, starting ghost spawns");
-			
+
 			// Queue up first batch for staggered spawning
 			if (ghostBatches.length > 0)
 			{
@@ -551,7 +651,7 @@ class PlayState extends FlxState
 			}
 			return; // Don't check for victory yet
 		}
-		
+
 		// Current batch spawned - check if all are dead before spawning next batch
 		if (!currentBatchSpawned && ghostSpawnQueue.length == 0)
 		{
@@ -571,6 +671,12 @@ class PlayState extends FlxState
 		if (currentBatchSpawned && whiteGhosts.countLiving() == 0 && !player.active)
 		{
 			trace("Phase 0.5 batch " + (currentBatchIndex + 1) + " fight started!");
+			// Play ghost music when first batch starts
+			if (currentBatchIndex == 0)
+			{
+				Sound.playMusic("ghosts");
+			}
+
 			FlxG.camera.follow(player, LOCKON);
 			player.active = true;
 			player.reticle.visible = true;
@@ -603,6 +709,7 @@ class PlayState extends FlxState
 				// All batches completed
 				trace("=== ALL GHOST BATCHES DEFEATED! ===");
 				trace("Starting 3-second timer before transition...");
+				Sound.stopMusic(); // Stop ghost music when all ghosts are defeated
 				ghostsAllDead = true;
 				ghostsDefeatedTimer = 0;
 			}
@@ -667,9 +774,13 @@ class PlayState extends FlxState
 		trace("=== ENDING PHASE 0.5 GHOSTS ===");
 		trace("Transitioning to egg hatch sequence...");
 
-		// IMMEDIATELY switch to INTRO state to prevent updatePhase0_5Ghosts from running during transition
+		// Clean up all attacks and reset player
+		cleanupPhaseEnd();
+
+		// Switch to INTRO state with PHASE_0_5_CINEMATIC to handle cinematics
+		// DO NOT start egg hatch until cinematics complete!
 		gameState = INTRO;
-		introState = EGG_PAUSE_1; // Will start egg hatch after cinematics complete
+		introState = PHASE_0_5_CINEMATIC;
 		introTimer = 0;
 
 		// Stop player control and hide reticle
@@ -677,26 +788,54 @@ class PlayState extends FlxState
 		player.velocity.set(0, 0);
 		player.reticle.visible = false;
 
-		// Calculate player destination
+		// Calculate player destination (bottom of screen, centered)
 		var startX = (map.width / 2) - 4;
 		var startY = map.height - 32;
-		var moveTime = Math.sqrt(Math.pow(startX - player.x, 2) + Math.pow(startY - player.y, 2)) / (40 * player.moveSpeed);
+		var distance = Math.sqrt(Math.pow(startX - player.x, 2) + Math.pow(startY - player.y, 2));
+		var moveTime = distance / (40 * player.moveSpeed);
 
+		trace("Moving player from (" + player.x + ", " + player.y + ") to (" + startX + ", " + startY + ") distance=" + distance + " over " + moveTime
+			+ " seconds");
+
+		// Center camera on player
 		cameraTarget.setPosition(player.x + player.width / 2, player.y + player.height / 2);
-		
-		// Move player with 1 second start delay, then pan to egg with another 1 second delay
-		cinematics.followTween(player, startX, startY, moveTime, 1.0, function()
+		FlxG.camera.follow(cameraTarget, LOCKON);
+
+		// If player is already close to destination (within 10 pixels), skip movement and pan immediately
+		if (distance < 10)
 		{
-			trace("Player reached position, now panning to egg...");
-			// Pan camera to egg (with 1 second delay after player arrives)
+			trace("Player already at destination - skipping movement, panning to egg now");
+			player.x = startX;
+			player.y = startY;
+
+			// Pan camera to egg (with 1 second delay)
 			cinematics.panToSprite(eggSprite, 1.0, 1.0, function()
 			{
-				trace("Pan to egg complete - egg hatch will now proceed");
-				// introState is already EGG_PAUSE_1, just reset timer to trigger hatch
+				trace("Pan to egg complete - NOW starting egg hatch");
+				// NOW set to EGG_PAUSE_1 to start hatching
+				introState = EGG_PAUSE_1;
 				introTimer = 0;
 			});
-		});
+		}
+		else
+		{
+			// Move player with 1 second start delay, then pan to egg with another 1 second delay
+			var tween = cinematics.followTween(player, startX, startY, moveTime, 1.0, function()
+			{
+				trace("Player reached position, now panning to egg...");
+				// Pan camera to egg (with 1 second delay after player arrives)
+				cinematics.panToSprite(eggSprite, 1.0, 1.0, function()
+				{
+					trace("Pan to egg complete - NOW starting egg hatch");
+					// NOW set to EGG_PAUSE_1 to start hatching
+					introState = EGG_PAUSE_1;
+					introTimer = 0;
+				});
+			});
+			trace("Tween created: " + (tween != null ? "SUCCESS" : "FAILED"));
+		}
 	}
+
 	function spawnSingleGhost(charData:CharacterData):Void
 	{
 		// Get ghost spawn position first (but don't activate ghost yet)
@@ -720,8 +859,8 @@ class PlayState extends FlxState
 			attempts++;
 		}
 		while (attempts < maxAttempts && ( // Too close to egg
-				Math.sqrt(Math.pow(spawnX - eggCenterX, 2) + Math.pow(spawnY - eggCenterY, 2)) < 64 // Too close to player (24px buffer)
-				|| Math.sqrt(Math.pow(spawnX - playerCenterX, 2) + Math.pow(spawnY - playerCenterY, 2)) < 24));
+				Math.sqrt(Math.pow(spawnX - eggCenterX, 2) + Math.pow(spawnY - eggCenterY, 2)) < 64 // Too close to player (64px buffer for safety)
+				|| Math.sqrt(Math.pow(spawnX - playerCenterX, 2) + Math.pow(spawnY - playerCenterY, 2)) < 64));
 
 			// Create white ghost sprite for spawn animation
 		var whiteGhost:FlxSprite = whiteGhosts.getFirstAvailable();
@@ -735,13 +874,22 @@ class PlayState extends FlxState
 		// Set the sprite frame to match the character
 		whiteGhost.animation.frameIndex = charData.spriteFrame;
 
-		// Position white ghost centered at spawn location
-		// Center the sprite at the spawn point (spawnX, spawnY is top-left of 16x16 ghost)
-		// We want white ghost centered at spawnX+8, spawnY+8
-		whiteGhost.scale.set(0.5, 0.5);
-		whiteGhost.updateHitbox(); // Update bounds after scaling
-		whiteGhost.x = spawnX + 8 - whiteGhost.width / 2;
-		whiteGhost.y = spawnY + 8 - whiteGhost.height / 2;
+		// Reset to default origin (top-left) and set initial scale
+		whiteGhost.origin.set(0, 0);
+		whiteGhost.scale.set(0.2, 0.2);
+		whiteGhost.updateHitbox();
+
+		// Position white ghost so its CENTER is at ghost center point
+		// Ghost center is at spawnX+8, spawnY+8 (16x16 ghost, so center is +8)
+		var ghostCenterX = spawnX + 8;
+		var ghostCenterY = spawnY + 8;
+
+		// Calculate top-left position so center aligns with ghostCenterX/Y
+		// With origin at top-left, x/y is the top-left corner
+		// So we need: x + (width/2) = ghostCenterX
+		whiteGhost.x = ghostCenterX - (whiteGhost.frameWidth * whiteGhost.scale.x) / 2;
+		whiteGhost.y = ghostCenterY - (whiteGhost.frameHeight * whiteGhost.scale.y) / 2;
+
 		whiteGhost.alpha = 0;
 		whiteGhost.exists = true;
 		whiteGhost.alive = true;
@@ -751,18 +899,15 @@ class PlayState extends FlxState
 		var staggerDelay = 0.4 * ghostIndex;
 		Ghost.incrementSpawnCounter();
 
-		// Tween alpha to 1 over 0.8s
+		// Fade in and scale up from 0.2 to 1.0 over 0.8s
 		FlxTween.tween(whiteGhost, {alpha: 1}, 0.8, {startDelay: staggerDelay});
-
-		// Tween scale to 1 over 0.8s, then spawn real ghost
-		FlxTween.tween(whiteGhost.scale, {x: 1, y: 1}, 0.8, {
+		FlxTween.tween(whiteGhost.scale, {x: 1.0, y: 1.0}, 0.8, {
 			startDelay: staggerDelay,
 			onUpdate: function(_)
 			{
-				// Keep white ghost centered as it scales
-				whiteGhost.updateHitbox();
-				whiteGhost.x = spawnX + 8 - whiteGhost.width / 2;
-				whiteGhost.y = spawnY + 8 - whiteGhost.height / 2;
+				// Keep centered as it scales - recalculate position based on current scale
+				whiteGhost.x = ghostCenterX - (whiteGhost.frameWidth * whiteGhost.scale.x) / 2;
+				whiteGhost.y = ghostCenterY - (whiteGhost.frameHeight * whiteGhost.scale.y) / 2;
 			},
 			onComplete: function(_)
 			{
@@ -805,9 +950,15 @@ class PlayState extends FlxState
 					var halberd:Halberd = cast ghost.weapon;
 					add(halberd.getJabHitbox());
 				}
-				// Fade out white ghost with scale increase
+				// Fade out and scale up white ghost (flash effect) - keep centered over real ghost
 				FlxTween.tween(whiteGhost, {alpha: 0}, 0.8);
 				FlxTween.tween(whiteGhost.scale, {x: 1.5, y: 1.5}, 0.8, {
+					onUpdate: function(_)
+					{
+						// Keep white ghost centered at spawn location as it scales
+						whiteGhost.x = ghostCenterX - (whiteGhost.frameWidth * whiteGhost.scale.x) / 2;
+						whiteGhost.y = ghostCenterY - (whiteGhost.frameHeight * whiteGhost.scale.y) / 2;
+					},
 					onComplete: function(_)
 					{
 						whiteGhost.kill();
@@ -816,6 +967,7 @@ class PlayState extends FlxState
 			}
 		});
 	}
+
 	function startEggHatching():Void
 	{
 		// Continue the intro sequence from EGG_PAUSE_1 (ready to crack the egg)
@@ -834,9 +986,13 @@ class PlayState extends FlxState
 		boss.active = true;
 		boss.setReady();
 		FlxG.camera.follow(player, LOCKON);
+		// Start Phase 1 music
+		Sound.playMusic("phase1");
+
 		// Set game state to Phase 1 active
 		gameState = PHASE_1_ACTIVE;
 		trace("Phase 1 battle started!");
+		axollib.AxolAPI.sendEvent("PHASE_1_START");
 	}
 
 	function spawnSpiritOrb(X:Float, Y:Float, ghostLevel:Int = 1):Void
@@ -1070,14 +1226,14 @@ class PlayState extends FlxState
 					// Check vs mayflies (only if didn't hit boss)
 					if (!hitSomething)
 					{
-					FlxG.overlap(spinHitbox, mayflies, function(h:FlxSprite, m:Mayfly)
-					{
+						FlxG.overlap(spinHitbox, mayflies, function(h:FlxSprite, m:Mayfly)
+						{
 							// Pixel-perfect for spin (has transparency)
 							if (FlxG.pixelPerfectOverlap(h, m))
 							{
 								// Mayflies will take damage every hit (no cooldown tracking yet)
 								m.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
-							hitSomething = true;
+								hitSomething = true;
 								// ALWAYS bounce
 								var dx = player.x - m.x;
 								var dy = player.y - m.y;
@@ -1090,20 +1246,20 @@ class PlayState extends FlxState
 									player.applySpinBounce(dx * bounceSpeed, dy * bounceSpeed);
 								}
 							}
-					});
+						});
 					}
 
 					// Check vs ghosts (only if didn't hit anything else)
 					if (!hitSomething)
 					{
-					FlxG.overlap(spinHitbox, ghosts, function(h:FlxSprite, g:Ghost)
-					{
+						FlxG.overlap(spinHitbox, ghosts, function(h:FlxSprite, g:Ghost)
+						{
 							// Pixel-perfect for spin (has transparency)
 							if (FlxG.pixelPerfectOverlap(h, g))
 							{
 								// Ghosts will take damage every hit (no cooldown tracking yet)
 								g.takeDamage(sword.baseDamage * player.attackDamage * 0.7);
-							hitSomething = true;
+								hitSomething = true;
 								// ALWAYS bounce
 								var dx = player.x - g.x;
 								var dy = player.y - g.y;
@@ -1129,26 +1285,23 @@ class PlayState extends FlxState
 				{
 					var hitSomething = false;
 
-					// Check vs boss segments
+					// Check vs boss segments using custom angle-based collision
 					if (!hitSomething && boss != null && boss.alive && boss.visible)
 					{
-						// Use boss's checkOverlap with rotated collision and pixel-perfect
-						if (boss.checkOverlap(hitbox, true, true))
+						boss.forEachAlive(function(segment:FlxSprite)
 						{
-							// Generate unique ID for this sword's slash hitbox at this moment
-							boss.takeDamage(sword.baseDamage * player.attackDamage, getDamageInstanceId(hitbox));
-							hitSomething = true;
-						}
+							if (!hitSomething && sword.checkSlashHit(segment))
+							{
+								boss.takeDamage(sword.baseDamage * player.attackDamage, getDamageInstanceId(hitbox));
+								hitSomething = true;
+							}
+						});
 					}
 
-					// Check vs boss2 body parts
+					// Check vs boss2 body parts using custom angle-based collision
 					if (!hitSomething && boss2 != null && boss2.alive && boss2.isActive)
 					{
-						// Pixel-perfect check for slash vs boss2 segments
-						// Boss2 doesn't have instance-based damage tracking yet
-						if ((hitbox.overlaps(boss2.thorax) && FlxG.pixelPerfectOverlap(hitbox, boss2.thorax))
-							|| (hitbox.overlaps(boss2.head) && FlxG.pixelPerfectOverlap(hitbox, boss2.head))
-							|| (hitbox.overlaps(boss2.abdomen) && FlxG.pixelPerfectOverlap(hitbox, boss2.abdomen)))
+						if (sword.checkSlashHit(boss2.thorax) || sword.checkSlashHit(boss2.head) || sword.checkSlashHit(boss2.abdomen))
 						{
 							boss2.takeDamage(sword.baseDamage * player.attackDamage, getDamageInstanceId(hitbox));
 							hitSomething = true;
@@ -1160,7 +1313,7 @@ class PlayState extends FlxState
 					{
 						mayflies.forEachAlive(function(m:Mayfly)
 						{
-							if (!hitSomething && hitbox.overlaps(m))
+							if (!hitSomething && sword.checkSlashHit(m))
 							{
 								// Mayflies don't have cooldown tracking yet
 								m.takeDamage(sword.baseDamage * player.attackDamage);
@@ -1173,7 +1326,7 @@ class PlayState extends FlxState
 					{
 						ghosts.forEachAlive(function(g:Ghost)
 						{
-							if (!hitSomething && hitbox.overlaps(g))
+							if (!hitSomething && sword.checkSlashHit(g))
 							{
 								// Ghosts don't have cooldown tracking yet
 								g.takeDamage(sword.baseDamage * player.attackDamage);
@@ -1327,7 +1480,7 @@ class PlayState extends FlxState
 		FlxG.overlap(player, bossProjectiles, playerHitProjectile);
 		// Check plasma collisions
 		FlxG.overlap(player, plasmas, playerHitPlasma);
-	
+
 		// Check ghosts vs player projectiles and melee
 		FlxG.overlap(projectiles, ghosts, projectileHitGhost); // Check melee weapons vs ghosts
 		if (Std.isOfType(player.weapon, Sword))
@@ -1386,7 +1539,7 @@ class PlayState extends FlxState
 			// Pixel-perfect check for boss collision to avoid transparent areas
 			if (!FlxG.pixelPerfectOverlap(player, segment))
 				return;
-				
+
 			player.takeDamage(boss.contactDamage, boss.x + boss.width / 2, boss.y + boss.height / 2);
 		}
 	}
@@ -1399,15 +1552,18 @@ class PlayState extends FlxState
 		}
 		proj.kill();
 	}
+
 	function playerHitPlasma(player:Player, plasma:Plasma):Void
 	{
 		if (plasma.isExploding)
 		{
 			// Explosion damages and knocks back player (unless dodging)
-			if (!player.isInvincible && !player.isDodging)
+			// Use pixel-perfect overlap to prevent damage from far away
+			if (!player.isInvincible && !player.isDodging && FlxG.pixelPerfectOverlap(plasma, player))
 			{
 				var centerX = plasma.x + plasma.width / 2;
 				var centerY = plasma.y + plasma.height / 2;
+				// Use plasma's ID to prevent multiple hits from same explosion
 				player.takeDamage(1.0, centerX, centerY);
 			}
 		}
@@ -1432,12 +1588,14 @@ class PlayState extends FlxState
 	{
 		heart.collect(player);
 	}
-	
+
 	// ===== PHASE TRANSITION SYSTEM =====
 
 	function startPhase1DeathSequence():Void
 	{
 		trace("Phase 1 boss defeated! Starting death sequence...");
+		axollib.AxolAPI.sendEvent("PHASE_1_DEFEATED");
+		Sound.stopMusic(); // Stop Phase 1 boss music
 		gameState = PHASE_1_DEATH;
 		transitionTimer = 0;
 
@@ -1484,6 +1642,7 @@ class PlayState extends FlxState
 			boss.moveTo(cocoonCenterX, bossTargetY, 40, elapsed);
 			var headPos = boss.getHeadPosition();
 			cameraTarget.setPosition(headPos.x, headPos.y);
+
 			// Meanwhile, player walks to starting position
 			var startX = (map.width / 2) - 4;
 			var startY = map.height - 32;
@@ -1510,7 +1669,7 @@ class PlayState extends FlxState
 			{
 				cocoonSprite.setPosition(cocoonCenterX - cocoonSprite.width / 2, cocoonCenterY - cocoonSprite.height / 2);
 				cocoonSprite.visible = true;
-				shadowLayer.add(new Shadow(cocoonSprite, 1.2, 1.0, 0, 4, true));
+				shadowLayer.add(new Shadow(cocoonSprite, "bossSegment", 0, 4));
 				hud.setBossHealthVisible(false);
 			}
 
@@ -1520,6 +1679,7 @@ class PlayState extends FlxState
 
 			boss.forEach(spr -> if (spr != null) spr.alpha = bossAlpha);
 			for (shadow in boss.shadows)
+			{
 				if (shadow != null && shadow.exists)
 				{
 					shadow.alpha = bossAlpha;
@@ -1527,6 +1687,7 @@ class PlayState extends FlxState
 						shadow.kill();
 				}
 			}
+		}
 		else if (transitionTimer > 6.5 && transitionTimer <= 7.5)
 		{
 			if (boss.visible)
@@ -1554,6 +1715,7 @@ class PlayState extends FlxState
 	{
 		trace("Starting Phase 1.5 - Cocoon intermission (ALWAYS 1 minute minimum)");
 		gameState = PHASE_1_5_ACTIVE;
+		axollib.AxolAPI.sendEvent("PHASE_1_5_START");
 		transitionTimer = 0;
 		ghostsAllDead = false;
 		ghostsDefeatedTimer = 0;
@@ -1577,16 +1739,19 @@ class PlayState extends FlxState
 			}
 		});
 
-		// Filter ghosts: only spawn those who died in Phase 1.5 (1) or Phase 2 (2)
+		// Filter ghosts: only spawn those who died in Phase 1.5 or Phase 2
 		var allGhosts = GameData.getDeadCharacters();
 		var phase1_5And2Ghosts = allGhosts.filter(function(char:CharacterData)
 		{
-			return char.deathPhase >= 1 && char.deathPhase <= 2;
+			return char.deathPhase == 1; // Phase 1.5 or 2 deaths
 		});
 
 		if (phase1_5And2Ghosts.length > 0)
 		{
 			trace("Phase 1.5: Spawning " + phase1_5And2Ghosts.length + " Phase 1.5/2 ghosts");
+			// Play ghost music
+			Sound.playMusic("ghost");
+
 			// Sort by level and create batches
 			phase1_5And2Ghosts.sort((a, b) -> a.level - b.level);
 			ghostBatches = createGhostBatches(phase1_5And2Ghosts, maxGhostsPerBatch);
@@ -1597,8 +1762,8 @@ class PlayState extends FlxState
 			if (ghostBatches.length > 0)
 			{
 				ghostSpawnQueue = ghostBatches[0].copy();
-			ghostSpawnTimer = 0;
-		}
+				ghostSpawnTimer = 0;
+			}
 			trace("Split into " + ghostBatches.length + " batches of max " + maxGhostsPerBatch + " ghosts");
 		}
 		else
@@ -1654,6 +1819,7 @@ class PlayState extends FlxState
 				if (!ghostsAllDead)
 				{
 					trace("All Phase 1.5 ghost batches defeated!");
+					Sound.stopMusic(); // Stop ghost music
 					ghostsAllDead = true;
 					ghostsDefeatedTimer = 0;
 				}
@@ -1665,11 +1831,12 @@ class PlayState extends FlxState
 		if (ghostsAllDead)
 		{
 			ghostsDefeatedTimer += elapsed;
-			
+
 			// Transition 3 seconds after all ghosts defeated
 			if (ghostsDefeatedTimer >= 3.0)
 			{
 				trace("Phase 1.5 complete (all ghosts defeated) - starting Phase 2 hatch");
+				cleanupPhaseEnd();
 				startPhase2HatchSequence();
 			}
 			return;
@@ -1679,16 +1846,48 @@ class PlayState extends FlxState
 		if (currentGhostCount == 0 && player.active && !ghostsAllDead && ghostBatches.length == 0)
 		{
 			trace("All Phase 1.5 ghosts defeated! Waiting 3 seconds before transition...");
+			Sound.stopMusic(); // Stop ghost music
 			ghostsAllDead = true;
 			ghostsDefeatedTimer = 0;
 			return;
 		}
 
-		// If no ghosts to fight, wait 30 seconds as breather/healing time
-		if (ghostBatches.length == 0 && transitionTimer >= 30.0)
+		// If no ghosts to fight, wait 10 seconds max as breather/healing time
+		if (ghostBatches.length == 0 && transitionTimer >= 10.0)
 		{
-			trace("Phase 1.5 complete (30s breather, no ghosts) - starting Phase 2 hatch");
+			trace("Phase 1.5 complete (10s breather, no ghosts) - starting Phase 2 hatch");
+			cleanupPhaseEnd();
 			startPhase2HatchSequence();
+		}
+	}
+
+	function cleanupPhaseEnd():Void
+	{
+		// Kill all projectiles and attacks
+		projectiles.forEachAlive(function(p:Projectile)
+		{
+			p.kill();
+		});
+
+		bossProjectiles.forEachAlive(function(p:Projectile)
+		{
+			p.kill();
+		});
+
+		plasmas.forEachAlive(function(p:Plasma)
+		{
+			p.kill();
+		});
+
+		timePulseRocks.forEachAlive(function(r:FlxSprite)
+		{
+			r.kill();
+		});
+
+		// Reset player cooldowns and timers
+		if (player != null && player.exists)
+		{
+			player.resetCooldowns();
 		}
 	}
 
@@ -1698,34 +1897,52 @@ class PlayState extends FlxState
 		gameState = PHASE_2_HATCH;
 		transitionTimer = 0;
 
-		// Stop player
+		// 1. Enter cinematic mode
 		player.active = false;
-		player.velocity.set(0, 0);
 		player.reticle.visible = false;
+		// Move cameraTarget to player's center and switch camera to follow it
+		cameraTarget.x = player.x + player.width / 2;
+		cameraTarget.y = player.y + player.height / 2;
+		FlxG.camera.follow(cameraTarget, LOCKON);
 
-		// Move player back to starting position
+		// Calculate starting position
 		var startX = (map.width / 2) - 4;
 		var startY = map.height - 32;
-		player.x = startX;
-		player.y = startY;
+		// Calculate walk time based on distance (player walks at ~60 pixels/second)
+		var walkDistance = Math.sqrt((startX - player.x) * (startX - player.x) + (startY - player.y) * (startY - player.y));
+		var walkTime = walkDistance / 60.0;
+		if (walkTime < 0.5)
+			walkTime = 0.5; // Minimum time
 
-		// Pan to cocoon using cameraTarget
+		// 2. Pan camera to cocoon AND have player walk to starting position simultaneously
 		FlxTween.tween(cameraTarget, {
 			x: cocoonSprite.x + cocoonSprite.width / 2,
 			y: cocoonSprite.y + cocoonSprite.height / 2
-		}, 1.0, {
-			ease: FlxEase.quadInOut,
+		}, 2.0, {
+			ease: FlxEase.quadInOut
+		});
+
+		// Player walks to starting position (they'll walk off screen)
+		FlxTween.tween(player, {x: startX, y: startY}, walkTime, {
+			ease: FlxEase.linear,
 			onComplete: function(t:FlxTween)
 			{
-				// Fade out cocoon
-				FlxTween.tween(cocoonSprite, {alpha: 0}, 1.0, {
-					onComplete: function(t:FlxTween)
-					{
-						cocoonSprite.visible = false;
-						spawnPhase2Boss();
-					}
-				});
+				player.velocity.set(0, 0);
 			}
+		});
+
+		// 3. After camera reaches cocoon, fade out cocoon and fade in boss
+		new FlxTimer().start(2.0, function(timer:FlxTimer)
+		{
+			// Fade out cocoon
+			FlxTween.tween(cocoonSprite, {alpha: 0}, 1.0, {
+				onComplete: function(t:FlxTween)
+				{
+					cocoonSprite.visible = false;
+				}
+			});
+			// Spawn and fade in boss
+			spawnPhase2Boss();
 		});
 	}
 
@@ -1733,8 +1950,12 @@ class PlayState extends FlxState
 	{
 		trace("Spawning Phase 2 boss!");
 
-		// Create Phase 2 boss at cocoon position
-		boss2 = new BossPhase02(cocoonSprite.x, cocoonSprite.y, player, bossProjectiles, plasmas);
+		// Create Phase 2 boss centered at cocoon position
+		// Boss canvas is 60x68, so offset to center it
+		var bossX = cocoonSprite.x + (cocoonSprite.width / 2) - 30; // Center horizontally (60/2 = 30)
+		var bossY = cocoonSprite.y + (cocoonSprite.height / 2) - 34; // Center vertically (68/2 = 34)
+
+		boss2 = new BossPhase02(bossX, bossY, player, bossProjectiles, plasmas, map);
 		boss2.alpha = 0;
 		add(boss2);
 
@@ -1742,40 +1963,596 @@ class PlayState extends FlxState
 		boss2.onSpawnRock = function(rock:FlxSprite)
 		{
 			timePulseRocks.add(rock);
-			trace("Added Time Pulse rock to scene");
 		};
 
 		// Set up fullscreen effect callback - add above most gameplay but below HUD
 		boss2.onSpawnFullscreenEffect = function(effect:FlxSprite)
 		{
 			insert(members.indexOf(hud), effect); // Insert just before HUD
-			trace("Added Time Pulse fullscreen effect to scene");
 		};
 
 		// Create shadows
 		boss2.createShadows(shadowLayer);
 
-		// Fade in
-		FlxTween.tween(boss2, {alpha: 1}, 1.5, {
+		// Start all parts invisible
+		boss2.abdomen.alpha = 0;
+		boss2.thorax.alpha = 0;
+		boss2.head.alpha = 0;
+		boss2.leftForeLeg.alpha = 0;
+		boss2.rightForeLeg.alpha = 0;
+		boss2.leftBackLeg.alpha = 0;
+		boss2.rightBackLeg.alpha = 0;
+		boss2.leftArmUpper.alpha = 0;
+		boss2.rightArmUpper.alpha = 0;
+		boss2.leftArmClaw.alpha = 0;
+		boss2.rightArmClaw.alpha = 0;
+		boss2.mouth.alpha = 0;
+		boss2.pincers.alpha = 0;
+
+		// Fade in all parts
+		FlxTween.tween(boss2.abdomen, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.thorax, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.head, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.leftForeLeg, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.rightForeLeg, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.leftBackLeg, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.rightBackLeg, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.leftArmUpper, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.rightArmUpper, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.leftArmClaw, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.rightArmClaw, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.mouth, {alpha: 1}, 1.5);
+		FlxTween.tween(boss2.pincers, {alpha: 1}, 1.5, {
 			onComplete: function(t:FlxTween)
 			{
-				// Activate Phase 2
-				boss2.activate();
-				gameState = PHASE_2_ACTIVE;
-
-				// Tween camera back to player
-				FlxTween.tween(cameraTarget, {x: player.x, y: player.y}, 1.0, {
-					ease: FlxEase.quadInOut,
-					onComplete: function(t:FlxTween)
-					{
-						// Reactivate player
-						player.active = true;
-						player.reticle.visible = true;
-						trace("Phase 2 active!");
-					}
-				});
+				// 4. Boss walks down to introduction position
+				bossWalkToIntroPosition();
 			}
 		});
+	}
+
+	function bossWalkToIntroPosition():Void
+	{
+		// Boss walks to SAME Y position as Phase 1 boss (near egg position)
+		// Phase 1 boss was at eggSprite.y + 57
+		var targetY = eggSprite.y + 57 - 10; // Slightly higher since Boss 2 is taller
+		var targetX = (map.width / 2) - (boss2.width / 2); // Center horizontally
+
+		var walkDistance = Math.sqrt((targetX - boss2.x) * (targetX - boss2.x) + (targetY - boss2.y) * (targetY - boss2.y));
+		var walkTime = walkDistance / 40.0; // Slower, more dramatic walk
+
+		trace("Boss 2 walking from (" + boss2.x + "," + boss2.y + ") to (" + targetX + "," + targetY + ") over " + walkTime + "s");
+
+		// Camera follows boss head during walk
+		FlxTween.tween(boss2, {x: targetX, y: targetY}, walkTime, {
+			ease: FlxEase.quadInOut,
+			onUpdate: function(t:FlxTween)
+			{
+				// Update camera to follow boss head position
+				cameraTarget.x = boss2.head.x + boss2.head.width / 2;
+				cameraTarget.y = boss2.head.y + boss2.head.height / 2;
+			},
+			onComplete: function(t:FlxTween)
+			{
+				// Boss stops and roars, name and health bar appear
+				bossIntroduction();
+			}
+		});
+	}
+
+	function bossIntroduction():Void
+	{
+		// Boss roars!
+		boss2.roar();
+		
+		// Play Phase 2 music
+		Sound.playMusic("phase2");
+
+		// Update HUD to track boss2
+		hud.setBoss(boss2);
+
+		// Boss starts with 0 health, fill to max over 1 second
+		boss2.currentHealth = 0;
+		FlxTween.tween(boss2, {currentHealth: boss2.maxHealth}, 1.0, {ease: FlxEase.quadOut});
+
+		// Show boss health bar and reveal name
+		hud.setBossHealthVisible(true);
+		hud.revealBossName();
+
+		// Wait a moment for dramatic effect
+		new FlxTimer().start(1.5, function(timer:FlxTimer)
+		{
+			// Close roar
+			boss2.closeRoar();
+			
+			// 6. Camera returns to player
+			FlxTween.tween(cameraTarget, {x: player.x, y: player.y}, 1.0, {
+				ease: FlxEase.quadInOut,
+				onComplete: function(t:FlxTween)
+				{
+					// 7. Exit cinematic mode - activate gameplay
+					FlxG.camera.follow(player, LOCKON);
+					player.active = true;
+					player.reticle.visible = true;
+					boss2.activate();
+					gameState = PHASE_2_ACTIVE;
+					axollib.AxolAPI.sendEvent("PHASE_2_START");
+					trace("Phase 2 active!");
+				}
+			});
+		});
+	}
+
+	function startPhase2DeathSequence():Void
+	{
+		trace("Phase 2 boss defeated! Starting death sequence...");
+		Sound.stopMusic();
+		gameState = PHASE_2_DEATH;
+		transitionTimer = 0;
+
+		// Abort any ongoing attacks immediately
+		if (boss2 != null)
+			boss2.abortCurrentAttack();
+
+		// Stop player and boss
+		player.active = false;
+		player.velocity.set(0, 0);
+		player.reticle.visible = false;
+		boss2.isActive = false;
+
+		// Initialize cameraTarget to player position
+		cameraTarget.setPosition(player.x + player.width / 2, player.y + player.height / 2);
+		FlxG.camera.follow(cameraTarget, LOCKON);
+
+		// Pan camera to boss head
+		FlxTween.tween(cameraTarget, {
+			x: boss2.head.x + boss2.head.width / 2,
+			y: boss2.head.y + boss2.head.height / 2
+		}, 1.0, {ease: FlxEase.quadInOut});
+	}
+
+	function updatePhase2DeathSequence(elapsed:Float):Void
+	{
+		transitionTimer += elapsed;
+
+		var cocoonCenterX = map.width / 2;
+		var cocoonCenterY = 60;
+
+		// Sequence: pan(1s) → roar(1s) → move to cocoon(2s) → cocoon fade(1.5s) → start Phase 2.5
+		if (transitionTimer > 1.0 && transitionTimer <= 2.0)
+		{
+			// Roar
+			if (transitionTimer - elapsed <= 1.0)
+			{
+				FlxG.camera.shake(0.01, 1.0);
+			}
+		}
+		else if (transitionTimer > 2.0 && transitionTimer <= 4.0)
+		{
+			// Boss moves to cocoon position
+			var targetX = cocoonCenterX - boss2.width / 2;
+			var targetY = cocoonCenterY;
+
+			boss2.x += (targetX - boss2.x) * elapsed * 2;
+			boss2.y += (targetY - boss2.y) * elapsed * 2;
+
+			cameraTarget.setPosition(boss2.head.x + boss2.head.width / 2, boss2.head.y + boss2.head.height / 2);
+
+			// Player walks to starting position
+			var startX = (map.width / 2) - 4;
+			var startY = map.height - 32;
+			var dx = startX - player.x;
+			var dy = startY - player.y;
+			var dist = Math.sqrt(dx * dx + dy * dy);
+
+			if (dist > 1)
+			{
+				var angle = Math.atan2(dy, dx);
+				player.x += Math.cos(angle) * 50 * elapsed;
+				player.y += Math.sin(angle) * 50 * elapsed;
+			}
+		}
+		else if (transitionTimer > 4.0 && transitionTimer <= 5.5)
+		{
+			// Fade in cocoon, fade out boss
+			if (cocoonSprite.alpha == 0)
+			{
+				cocoonSprite.setPosition(cocoonCenterX - cocoonSprite.width / 2, cocoonCenterY - cocoonSprite.height / 2);
+				cocoonSprite.visible = true;
+				shadowLayer.add(new Shadow(cocoonSprite, "bossSegment", 0, 4));
+				hud.setBossHealthVisible(false);
+			}
+
+			var fadeProgress = (transitionTimer - 4.0) / 1.5;
+			cocoonSprite.alpha = fadeProgress;
+			boss2.alpha = 1.0 - fadeProgress;
+		}
+		else if (transitionTimer > 5.5 && transitionTimer <= 6.5)
+		{
+			if (boss2.visible)
+			{
+				boss2.visible = false;
+				boss2.kill();
+			}
+
+			// Pan to player
+			FlxTween.tween(cameraTarget, {
+				x: player.x + player.width / 2,
+				y: player.y + player.height / 2
+			}, 1.0, {ease: FlxEase.quadInOut});
+		}
+		else if (transitionTimer > 6.5)
+		{
+			// Start Phase 2.5
+			startPhase2_5();
+		}
+	}
+
+	function startPhase2_5():Void
+	{
+		trace("Starting Phase 2.5 - Cocoon intermission 2");
+		gameState = PHASE_2_5_ACTIVE;
+		axollib.AxolAPI.sendEvent("PHASE_2_5_START");
+		transitionTimer = 0;
+		ghostsAllDead = false;
+		ghostsDefeatedTimer = 0;
+		Ghost.resetSpawnCounter();
+
+		player.velocity.set(0, 0);
+		player.reticle.visible = false;
+
+		// Pan camera to player
+		FlxTween.tween(cameraTarget, {
+			x: player.x,
+			y: player.y
+		}, 1.0, {
+			ease: FlxEase.quadInOut,
+			onComplete: function(t:FlxTween)
+			{
+				FlxG.camera.follow(player, LOCKON);
+				player.active = true;
+				player.reticle.visible = true;
+			}
+		});
+		// Filter ghosts: only spawn those who died in Phase 2
+		var allGhosts = GameData.getDeadCharacters();
+		var phase2Ghosts = allGhosts.filter(function(char:CharacterData)
+		{
+			return char.deathPhase == 2;
+		});
+
+		if (phase2Ghosts.length > 0)
+		{
+			trace("Phase 2.5: Spawning " + phase2Ghosts.length + " Phase 2 ghosts");
+			// Play ghost music
+			Sound.playMusic("ghost");
+
+			phase2Ghosts.sort((a, b) -> a.level - b.level);
+			ghostBatches = createGhostBatches(phase2Ghosts, maxGhostsPerBatch);
+			currentBatchIndex = 0;
+			ghostSpawnQueue = ghostBatches[0].copy();
+		}
+		else
+		{
+			trace("Phase 2.5: No ghosts to spawn, immediately progressing");
+			ghostsAllDead = true;
+			ghostsSpawningComplete = true;
+		}
+	}
+
+	function updatePhase2_5(elapsed:Float):Void
+	{
+		transitionTimer += elapsed;
+
+		// Staggered ghost spawning for current batch
+		if (ghostSpawnQueue.length > 0)
+		{
+			ghostSpawnTimer += elapsed;
+			if (ghostSpawnTimer >= ghostSpawnInterval)
+			{
+				ghostSpawnTimer = 0;
+				var charData = ghostSpawnQueue.shift();
+				spawnSingleGhost(charData);
+				trace("Spawned Phase 2.5 ghost: " + charData.name);
+			}
+			return;
+		}
+
+		// Current batch spawned
+		if (!currentBatchSpawned && ghostSpawnQueue.length == 0 && ghostBatches.length > 0)
+		{
+			currentBatchSpawned = true;
+			trace("Phase 2.5 Batch " + (currentBatchIndex + 1) + " fully spawned");
+			return;
+		}
+
+		// Check if current batch is defeated
+		var currentGhostCount = ghosts.countLiving();
+		if (currentBatchSpawned && currentGhostCount == 0 && ghostBatches.length > 0)
+		{
+			currentBatchIndex++;
+
+			if (currentBatchIndex < ghostBatches.length)
+			{
+				trace("=== PHASE 2.5 BATCH " + currentBatchIndex + " DEFEATED - SPAWNING NEXT BATCH ===");
+				ghostSpawnQueue = ghostBatches[currentBatchIndex].copy();
+				ghostSpawnTimer = 0;
+				currentBatchSpawned = false;
+				Ghost.resetSpawnCounter();
+			}
+			else
+			{
+				if (!ghostsAllDead)
+				{
+					trace("All Phase 2.5 ghost batches defeated!");
+					Sound.stopMusic(); // Stop ghost music
+					ghostsAllDead = true;
+					ghostsDefeatedTimer = 0;
+				}
+			}
+			return;
+		}
+
+		// Track when all ghosts are defeated
+		if (ghostsAllDead)
+		{
+			ghostsDefeatedTimer += elapsed;
+
+			// Transition 3 seconds after all ghosts defeated
+			if (ghostsDefeatedTimer >= 3.0)
+			{
+				trace("Phase 2.5 complete - starting Phase 3 hatch");
+				cleanupPhaseEnd();
+				startPhase3HatchSequence();
+			}
+			return;
+		}
+
+		// If no ghosts to fight, wait 10 seconds max as breather
+		if (ghostBatches.length == 0 && transitionTimer >= 10.0)
+		{
+			trace("Phase 2.5 complete (10s breather, no ghosts) - starting Phase 3 hatch");
+			cleanupPhaseEnd();
+			startPhase3HatchSequence();
+		}
+	}
+
+	function startPhase3HatchSequence():Void
+	{
+		trace("Boss hatching into Phase 3!");
+		gameState = PHASE_3_HATCH;
+		transitionTimer = 0;
+
+		// Enter cinematic mode
+		player.active = false;
+		player.reticle.visible = false;
+		cameraTarget.x = player.x + player.width / 2;
+		cameraTarget.y = player.y + player.height / 2;
+		FlxG.camera.follow(cameraTarget, LOCKON);
+
+		// Calculate starting position
+		var startX = (map.width / 2) - 4;
+		var startY = map.height - 32;
+		var walkDistance = Math.sqrt((startX - player.x) * (startX - player.x) + (startY - player.y) * (startY - player.y));
+		var walkTime = walkDistance / 60.0;
+		if (walkTime < 0.5)
+			walkTime = 0.5;
+
+		// Pan camera to cocoon AND have player walk to starting position
+		FlxTween.tween(cameraTarget, {
+			x: cocoonSprite.x + cocoonSprite.width / 2,
+			y: cocoonSprite.y + cocoonSprite.height / 2
+		}, 2.0, {
+			ease: FlxEase.quadInOut
+		});
+
+		// Player walks to starting position
+		FlxTween.tween(player, {x: startX, y: startY}, walkTime, {
+			ease: FlxEase.linear,
+			onComplete: function(t:FlxTween)
+			{
+				player.velocity.set(0, 0);
+			}
+		});
+		// After camera reaches cocoon, spawn boss
+		new FlxTimer().start(2.0, function(timer:FlxTimer)
+		{
+			// Fade out cocoon
+			FlxTween.tween(cocoonSprite, {alpha: 0}, 1.0, {
+				onComplete: function(t:FlxTween)
+				{
+					cocoonSprite.visible = false;
+				}
+			});
+			// TODO: Spawn and fade in boss 3
+			spawnPhase3Boss();
+		});
+	}
+
+	function spawnPhase3Boss():Void
+	{
+		trace("Spawning Phase 3 boss!");
+
+		// Create Phase 3 boss at center of arena
+		var bossX = (map.width / 2) - 30;
+		var bossY = (map.height / 2) - 30;
+
+		boss3 = new BossPhase03(bossX, bossY, player, bossProjectiles, plasmas, map);
+		add(boss3);
+
+		// Create shadows
+		boss3.createShadows(shadowLayer);
+
+		// Update HUD to track boss3
+		hud.setBoss(boss3);
+
+		// Start Phase 3 music
+		Sound.playMusic("phase3");
+
+		// Boss starts with 0 health, fill to max
+		boss3.currentHealth = 0;
+		FlxTween.tween(boss3, {currentHealth: boss3.maxHealth}, 1.0, {ease: FlxEase.quadOut});
+
+		// Show health bar and name
+		hud.setBossHealthVisible(true);
+		hud.revealBossName();
+
+		// Activate boss after intro
+		new FlxTimer().start(1.5, function(_)
+		{
+			boss3.activate();
+			player.active = true;
+			player.reticle.visible = true;
+			gameState = PHASE_3_ACTIVE;
+			axollib.AxolAPI.sendEvent("PHASE_3_START");
+			trace("Phase 3 active!");
+		});
+	}
+
+	function startPhase3DeathSequence():Void
+	{
+		trace("Phase 3 boss defeated! Starting VICTORY sequence!");
+		gameState = PHASE_3_DEATH;
+		transitionTimer = 0;
+		Sound.stopMusic(true); // Stop music immediately
+
+		// Stop player
+		player.active = false;
+		player.velocity.set(0, 0);
+		player.reticle.visible = false;
+
+		// Stop boss
+		if (boss3 != null)
+		{
+			boss3.isActive = false;
+		}
+
+		// Camera stays on player
+		FlxG.camera.follow(player, LOCKON);
+	}
+
+	function updatePhase3DeathSequence(elapsed:Float):Void
+	{
+		transitionTimer += elapsed;
+
+		// Sequence:
+		// 0.0s: White flash + crash sound
+		// 0.3s: Another flash
+		// 0.6s: Two quick flashes (0.6s, 0.75s)
+		// 1.0s: Boss roars
+		// 1.5s-4.0s: Boss falls slowly (offset.y increases) and fades out
+		// 4.5s: Victory music starts
+		// Music completes naturally, then show victory screen
+
+		if (transitionTimer >= 0.0 && transitionTimer < 0.05)
+		{
+			// First flash
+			FlxG.camera.flash(FlxColor.WHITE, 0.2);
+			FlxG.camera.shake(0.02, 0.3);
+			// TODO: Play crash sound
+		}
+		else if (transitionTimer >= 0.3 && transitionTimer < 0.35)
+		{
+			// Second flash
+			FlxG.camera.flash(FlxColor.WHITE, 0.2);
+		}
+		else if (transitionTimer >= 0.6 && transitionTimer < 0.65)
+		{
+			// Third flash
+			FlxG.camera.flash(FlxColor.WHITE, 0.15);
+		}
+		else if (transitionTimer >= 0.75 && transitionTimer < 0.80)
+		{
+			// Fourth flash
+			FlxG.camera.flash(FlxColor.WHITE, 0.15);
+		}
+		else if (transitionTimer >= 1.0 && transitionTimer < 1.05)
+		{
+			// Boss roars (start falling)
+			FlxG.camera.shake(0.015, 0.5);
+			// TODO: Play roar sound
+		}
+
+		// Boss falls and fades (1.5s to 4.0s = 2.5 second fall)
+		if (transitionTimer >= 1.5 && transitionTimer <= 4.0 && boss3 != null)
+		{
+			var fallProgress = (transitionTimer - 1.5) / 2.5;
+
+			// All boss parts fall
+			if (boss3.torso != null)
+			{
+				boss3.torso.offset.y = fallProgress * 30; // Fall 30 pixels
+				boss3.torso.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.head != null)
+			{
+				boss3.head.offset.y = fallProgress * 30;
+				boss3.head.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.abdomen != null)
+			{
+				boss3.abdomen.offset.y = fallProgress * 30;
+				boss3.abdomen.alpha = 1.0 - fallProgress;
+			}
+			// Wings
+			if (boss3.leftWingFore != null)
+			{
+				boss3.leftWingFore.offset.y = fallProgress * 30;
+				boss3.leftWingFore.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.leftWingBack != null)
+			{
+				boss3.leftWingBack.offset.y = fallProgress * 30;
+				boss3.leftWingBack.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.rightWingFore != null)
+			{
+				boss3.rightWingFore.offset.y = fallProgress * 30;
+				boss3.rightWingFore.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.rightWingBack != null)
+			{
+				boss3.rightWingBack.offset.y = fallProgress * 30;
+				boss3.rightWingBack.alpha = 1.0 - fallProgress;
+			}
+			// Legs
+			if (boss3.leftLegFore != null)
+			{
+				boss3.leftLegFore.offset.y = fallProgress * 30;
+				boss3.leftLegFore.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.leftLegBack != null)
+			{
+				boss3.leftLegBack.offset.y = fallProgress * 30;
+				boss3.leftLegBack.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.rightLegFore != null)
+			{
+				boss3.rightLegFore.offset.y = fallProgress * 30;
+				boss3.rightLegFore.alpha = 1.0 - fallProgress;
+			}
+			if (boss3.rightLegBack != null)
+			{
+				boss3.rightLegBack.offset.y = fallProgress * 30;
+				boss3.rightLegBack.alpha = 1.0 - fallProgress;
+			}
+		}
+
+		// Start victory music after pause
+		if (transitionTimer >= 4.5 && transitionTimer < 4.6)
+		{
+			trace("Playing victory music!");
+			Sound.playMusic("victory");
+		}
+
+		// Wait for victory music to finish (music_victory.ogg duration + buffer)
+		// Assuming ~60-90 second victory music
+		if (transitionTimer >= 95.0) // 4.5s sequence + ~90s music
+		{
+			trace("Victory sequence complete! Showing victory screen.");
+			var deaths = GameData.getDeadCharacters().length;
+			openSubState(new VictorySubState(deaths, selectedCharacter.name));
+		}
 	}
 
 	function checkPhase2Collisions():Void
@@ -1789,7 +2566,7 @@ class PlayState extends FlxState
 			// Check collision with main body parts (thorax, head, abdomen)
 			if (p.overlaps(boss2.thorax) || p.overlaps(boss2.head) || p.overlaps(boss2.abdomen))
 			{
-				boss2.takeDamage(player.attackDamage);
+				boss2.takeDamage(p.damage); // Use projectile's damage (includes baseDamage * attackDamage * multiplier)
 				p.kill();
 			}
 		});
@@ -1804,35 +2581,55 @@ class PlayState extends FlxState
 				player.knockback(boss2.x + boss2.width / 2, boss2.y + boss2.height / 2, 150);
 			}
 		}
-		// Check Time Pulse rocks hitting player or walls
+		// Check Time Pulse rocks hitting player or world bounds (pop like bubbles)
 		timePulseRocks.forEachAlive(function(rock:FlxSprite)
 		{
-			// Check if rock is moving (has velocity)
+			// Check if rock is moving (has velocity - means it's been fired)
 			if (rock.velocity.x != 0 || rock.velocity.y != 0)
 			{
 				// Check collision with player
 				if (!player.isInvincible && rock.overlaps(player))
 				{
-					player.takeDamage(1.0, rock.x + rock.width / 2, rock.y + rock.height / 2);
-					rock.kill();
+					// Deal damage stored in rock.ID (set by BossPhase02)
+					var damage:Float = rock.ID > 0 ? rock.ID : 1.0;
+					player.takeDamage(damage, rock.x + rock.width / 2, rock.y + rock.height / 2);
+					rock.kill(); // Rock pops on contact
 				}
 
-				// Check collision with world bounds
+				// Check collision with world bounds - rocks pop like bubbles when they hit edges
 				if (rock.x < FlxG.worldBounds.left
 					|| rock.x + rock.width > FlxG.worldBounds.right
 					|| rock.y < FlxG.worldBounds.top
 					|| rock.y + rock.height > FlxG.worldBounds.bottom)
 				{
-					rock.kill();
+					rock.kill(); // Rock pops on worldbounds
 				}
 			}
 		});
 	}
 
+	function checkPhase3Collisions():Void
+	{
+		if (boss3 == null || !boss3.exists || !boss3.isActive)
+			return;
+
+		// Check player projectiles hitting boss body parts
+		projectiles.forEachAlive(function(p:Projectile)
+		{
+			// Check collision with main body parts (torso, head, abdomen)
+			if (p.overlaps(boss3.torso) || p.overlaps(boss3.head) || p.overlaps(boss3.abdomen))
+			{
+				boss3.takeDamage(p.damage);
+				p.kill();
+			}
+		});
+		// TODO: Add boss3 specific attack collision checks (flying slashes, etc.)
+	}
+
 	function updateMayflySpawning(elapsed:Float):Void
 	{
 		mayflySpawnTimer += elapsed;
-		
+
 		var activeMayflies = mayflies.countLiving();
 		var spawnRate = activeMayflies == 0 ? 1.0 : 3.0;
 
@@ -1860,9 +2657,12 @@ class PlayState extends FlxState
 		}
 		heart.spawn(Pos);
 	}
+
 	public function onPlayerDeath():Void
 	{
 		trace("Player died!");
+		axollib.AxolAPI.sendEvent("PLAYER_DEATH");
+		Sound.stopMusic(); // Stop any playing music when player dies
 
 		// Stop all gameplay
 		player.active = false;
@@ -1870,7 +2670,7 @@ class PlayState extends FlxState
 			boss.active = false;
 		if (boss2 != null)
 			boss2.isActive = false;
-		
+
 		ghosts.forEachAlive(function(ghost:Ghost)
 		{
 			ghost.active = false;
@@ -1879,14 +2679,25 @@ class PlayState extends FlxState
 		// Save death data
 		saveDeathData();
 
-		// Fade out HUD before showing death screen
-		FlxTween.tween(hud, {alpha: 0}, 0.3, {
-			onComplete: function(_)
-			{
-				// Show death screen after HUD fades
-				openSubState(new DeathScreenSubState(selectedCharacter.name, getCurrentPhase()));
-			}
-		});
+		// Fade out HUD before showing death screen (with safety checks)
+		if (hud != null && hud.exists)
+		{
+			// Cancel any existing tweens on HUD
+			FlxTween.cancelTweensOf(hud);
+
+			FlxTween.tween(hud, {alpha: 0}, 0.3, {
+				onComplete: function(_)
+				{
+					// Show death screen after HUD fades
+					openSubState(new DeathScreenSubState(selectedCharacter.name, getCurrentPhase()));
+				}
+			});
+		}
+		else
+		{
+			// HUD doesn't exist, show death screen immediately
+			openSubState(new DeathScreenSubState(selectedCharacter.name, getCurrentPhase()));
+		}
 	}
 
 	function saveDeathData():Void
@@ -1917,33 +2728,14 @@ class PlayState extends FlxState
 	{
 		switch (gameState)
 		{
-			case INTRO | PHASE_0_5_GHOSTS:
-				return 0;
-			case PHASE_1_ACTIVE | PHASE_1_DEATH | PHASE_1_5_ACTIVE:
-				return 1;
-			case PHASE_2_HATCH | PHASE_2_ACTIVE | PHASE_2_DEATH | PHASE_2_5_ACTIVE:
-				return 2;
+			case INTRO | PHASE_0_5_GHOSTS | PHASE_1_ACTIVE | PHASE_1_DEATH:
+				return 0; // Deaths in Phase 1 spawn in Phase 0.5
+			case PHASE_1_5_ACTIVE | PHASE_2_HATCH | PHASE_2_ACTIVE | PHASE_2_DEATH:
+				return 1; // Deaths in Phase 1.5 and 2 spawn in Phase 1.5
+			case PHASE_2_5_ACTIVE:
+				return 2; // Deaths in Phase 2.5 spawn in Phase 2.5
 			default:
 				return 0;
-		}
-	}
-
-	function updatePhase2_5(elapsed:Float):Void
-	{
-		transitionTimer += elapsed;
-
-		if (ghosts.countLiving() == 0)
-		{
-			trace("All Phase 2.5 ghosts defeated! Proceeding to Phase 2 hatch.");
-			startPhase2HatchSequence();
-			return;
-		}
-
-		// Safety timeout
-		if (transitionTimer > 60.0)
-		{
-			trace("Phase 2.5 intermission timeout - forcing Phase 2 hatch");
-			startPhase2HatchSequence();
 		}
 	}
 }
@@ -1961,6 +2753,7 @@ enum GameState
 	PHASE_2_5_ACTIVE; // Phase 2.5: Husk intermission (if applicable)
 	PHASE_3_HATCH; // Phase 3 boss emergence
 	PHASE_3_ACTIVE; // Phase 3 boss fight
+	PHASE_3_DEATH; // Phase 3 final boss death - dramatic victory sequence
 }
 
 enum IntroState
@@ -1968,6 +2761,7 @@ enum IntroState
 	FADE_IN;
 	SCROLL_TO_EGG;
 	SCROLLING;
+	PHASE_0_5_CINEMATIC; // Post-ghost cinematics: move player, pan to egg
 	EGG_PAUSE_1;
 	EGG_CRACK_1;
 	EGG_PAUSE_2;

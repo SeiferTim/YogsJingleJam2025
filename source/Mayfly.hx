@@ -23,7 +23,7 @@ class Mayfly extends GameEntity
 		target = FlxPoint.get(-1, -1);
 		mp = FlxPoint.get();
 		loadGraphic(AssetPaths.mayfly__png, true, 8, 8);
-		animation.add("fly", [0, 1], 6, true);
+		animation.add("fly", [0, 1], 30, true);
 		animation.play("fly");
 		kill();
 	}
@@ -53,7 +53,7 @@ class Mayfly extends GameEntity
 
 		reset(spawnX, spawnY);
 
-		setupShadow(0.5, 0.5, 0, height);
+		setupShadow("bug"); // Mayflies use bug shadow graphic
 	}
 
 	function pickNewTarget():Void

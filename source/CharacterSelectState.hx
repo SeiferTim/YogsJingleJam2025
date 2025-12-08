@@ -14,15 +14,20 @@ class CharacterSelectState extends FlxState
 {
 	var characters:Array<CharacterData>;
 	var characterCards:FlxTypedGroup<CharacterCard>;
+	var nav:NavigableMenu;
 
 	var titleText:FlxBitmapText;
 	var font:FlxBitmapFont;
+	public var ready:Bool = false;
 
 	override function create():Void
 	{
 		super.create();
 
+		Sound.playMusic("menu");
+
 		bgColor = 0xff1a1a2e;
+		FlxG.mouse.visible = false;
 
 		// Pixel-perfect rendering
 		FlxG.camera.pixelPerfectRender = true;
@@ -71,6 +76,33 @@ class CharacterSelectState extends FlxState
 
 			var card = new CharacterCard(cardX, cardY, characters[i], onCharacterSelected);
 			characterCards.add(card);
+		}
+		// Collect all card buttons for navigation
+		var buttons:Array<FlxButton> = [];
+		for (card in characterCards)
+		{
+			buttons.push(cast card.selectButton);
+		}
+
+		// Create navigation system
+		nav = new NavigableMenu(buttons, GameGlobals.mouseHandler);
+		nav.enabled = false;
+
+		FlxG.camera.fade(FlxColor.BLACK, 0.5, true, () ->
+		{
+			FlxG.mouse.visible = true;
+			ready = true;
+			nav.enabled = true;
+		});
+	}
+
+	override public function update(elapsed:Float):Void
+	{
+		super.update(elapsed);
+
+		if (ready && nav != null)
+		{
+			nav.update(elapsed);
 		}
 	}
 
@@ -123,11 +155,14 @@ class CharacterSelectState extends FlxState
 	function onCharacterSelected(character:CharacterData):Void
 	{
 		// Store selected character globally (we'll pass it to PlayState)
-		FlxG.switchState(() -> new PlayState(character));
-	}
-
-	override function update(elapsed:Float):Void
-	{
-		super.update(elapsed);
+		if (!ready)
+			return;
+		ready = false;
+		Sound.stopMusic();
+		axollib.AxolAPI.sendEvent("CHARACTER_SELECTED");
+		FlxG.camera.fade(FlxColor.BLACK, 0.5, false, () ->
+		{
+			FlxG.switchState(() -> new PlayState(character));
+		});
 	}
 }

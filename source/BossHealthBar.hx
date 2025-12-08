@@ -146,6 +146,57 @@ class BossHealthBar extends FlxGroup
 		healthBar.alpha = value;
 	}
 
+	public function setBoss(newBoss:IBoss):Void
+	{
+		boss = newBoss;
+		previousHealth = boss.currentHealth;
+		// Update name letters
+		updateBossName(boss.bossName);
+	}
+
+	function updateBossName(name:String):Void
+	{
+		// Clear old name letters
+		for (letter in nameLetters)
+		{
+			letter.kill();
+			remove(letter);
+		}
+		nameLetters = [];
+
+		// Create new name
+		var font = FlxBitmapFont.fromAngelCode(AssetPaths.sml_font__png, AssetPaths.sml_font__xml);
+		var nameY = barY - 16; // Above health bar
+		var currentX = barX;
+
+		for (i in 0...name.length)
+		{
+			var charCode = name.charCodeAt(i);
+
+			if (charCode == 32)
+			{
+				currentX += 5;
+				continue;
+			}
+
+			var frame = font.getCharFrame(charCode);
+			if (frame != null)
+			{
+				var letterSprite = new FlxSprite(currentX, nameY);
+				letterSprite.loadGraphic(AssetPaths.sml_font__png);
+				letterSprite.frame = frame;
+				letterSprite.scrollFactor.set(0, 0);
+				letterSprite.alpha = 0;
+
+				nameLetters.push(letterSprite);
+				add(letterSprite);
+
+				var charAdvance = font.getCharAdvance(charCode);
+				currentX += charAdvance;
+			}
+		}
+	}
+
 	override function update(elapsed:Float):Void
 	{
 		super.update(elapsed);

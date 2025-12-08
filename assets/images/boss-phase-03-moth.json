@@ -1,0 +1,133 @@
+{ "frames": [
+   {
+    "filename": "lower-left-wing",
+    "frame": { "x": 0, "y": 43, "w": 35, "h": 32 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 15, "y": 35, "w": 35, "h": 32 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "lower-right-wing",
+    "frame": { "x": 35, "y": 43, "w": 35, "h": 32 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 70, "y": 35, "w": 35, "h": 32 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "upper-left-wing",
+    "frame": { "x": 0, "y": 0, "w": 53, "h": 43 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 2, "y": 1, "w": 53, "h": 43 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "upper-right-wing",
+    "frame": { "x": 53, "y": 0, "w": 53, "h": 43 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 65, "y": 1, "w": 53, "h": 43 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "moth-torso",
+    "frame": { "x": 106, "y": 0, "w": 28, "h": 52 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 46, "y": 16, "w": 28, "h": 52 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "lower-right-leg",
+    "frame": { "x": 134, "y": 11, "w": 11, "h": 10 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 66, "y": 45, "w": 11, "h": 10 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "lower-left-leg",
+    "frame": { "x": 145, "y": 11, "w": 11, "h": 10 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 43, "y": 45, "w": 11, "h": 10 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "upper-left-leg",
+    "frame": { "x": 134, "y": 0, "w": 11, "h": 11 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 41, "y": 30, "w": 11, "h": 11 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "upper-right-leg",
+    "frame": { "x": 145, "y": 0, "w": 11, "h": 11 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 68, "y": 30, "w": 11, "h": 11 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "moth-head",
+    "frame": { "x": 70, "y": 43, "w": 34, "h": 32 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 43, "y": 1, "w": 34, "h": 32 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "mouth",
+    "frame": { "x": 134, "y": 21, "w": 6, "h": 9 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 57, "y": 23, "w": 6, "h": 9 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   },
+   {
+    "filename": "pincers",
+    "frame": { "x": 104, "y": 52, "w": 26, "h": 13 },
+    "rotated": false,
+    "trimmed": true,
+    "spriteSourceSize": { "x": 47, "y": 25, "w": 26, "h": 13 },
+    "sourceSize": { "w": 120, "h": 70 },
+    "duration": 100
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.15.5-x64",
+  "format": "I8",
+  "size": { "w": 156, "h": 75 },
+  "scale": "1",
+  "layers": [
+   { "name": "time-energy", "opacity": 255, "blendMode": "normal" },
+   { "name": "lower-left-wing", "opacity": 255, "blendMode": "normal" },
+   { "name": "lower-right-wing", "opacity": 255, "blendMode": "normal" },
+   { "name": "upper-left-wing", "opacity": 255, "blendMode": "normal" },
+   { "name": "upper-right-wing", "opacity": 255, "blendMode": "normal" },
+   { "name": "moth-torso", "opacity": 255, "blendMode": "normal" },
+   { "name": "lower-right-leg", "opacity": 255, "blendMode": "normal" },
+   { "name": "lower-left-leg", "opacity": 255, "blendMode": "normal" },
+   { "name": "upper-left-leg", "opacity": 255, "blendMode": "normal" },
+   { "name": "upper-right-leg", "opacity": 255, "blendMode": "normal" },
+   { "name": "moth-head", "opacity": 255, "blendMode": "normal" },
+   { "name": "mouth", "opacity": 255, "blendMode": "normal" },
+   { "name": "pincers", "opacity": 255, "blendMode": "normal" }
+  ]
+ }
+}

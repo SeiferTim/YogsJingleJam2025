@@ -46,8 +46,6 @@ class SaveManager
 		
 		_save.data.ghosts = ghosts;
 		_save.flush();
-		
-		trace('Ghost saved: ${character.name} (Level ${character.level})');
 	}
 	
 	/**
@@ -67,8 +65,7 @@ class SaveManager
 				ghosts.push(CharacterData.fromSaveData(ghostData));
 			}
 		}
-		
-		trace('Loaded ${ghosts.length} ghosts');
+
 		return ghosts;
 	}
 	
@@ -92,8 +89,6 @@ class SaveManager
 		
 		_save.data.ghosts = [];
 		_save.flush();
-		
-		trace('All ghosts cleared');
 	}
 	
 	/**

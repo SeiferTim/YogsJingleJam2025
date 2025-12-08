@@ -22,22 +22,22 @@ class GameEntity extends FlxSprite
 	public function new()
 	{
 		super();
+		// Create shadow in constructor (child class specifies type later via setupShadow)
 	}
 
 	/**
-	 * Helper to setup or revive shadow with given parameters.
-	 * Call this in your spawn() method instead of duplicating shadow creation code.
+	 * Helper to setup shadow with given type and parameters.
+	 * Call this in your spawn() method.
 	 * 
-	 * @param scale Shadow scale (size relative to sprite)
-	 * @param alpha Shadow transparency (0-1)
-	 * @param offsetX X offset from sprite position
-	 * @param offsetY Y offset from sprite position
+	 * @param type Shadow type: "player", "bug", or "bossSegment"
+	 * @param offsetX X offset from sprite center (default 0)
+	 * @param offsetY Y offset from sprite center (default based on type)
 	 */
-	public function setupShadow(scale:Float = 1.0, alpha:Float = 0.5, offsetX:Float = 0, offsetY:Float = 0):Void
+	public function setupShadow(type:String, ?offsetX:Float = 0, ?offsetY:Float = null):Void
 	{
 		if (shadow == null)
 		{
-			shadow = new Shadow(this, scale, alpha, offsetX, offsetY);
+			shadow = new Shadow(this, type, offsetX, offsetY);
 			PlayState.current.shadowLayer.add(shadow);
 		}
 		else

@@ -52,6 +52,7 @@ class Arrow extends Weapon
 		var speed = baseSpeed * powerMultiplier;
 		arrow.velocity.x = Math.cos(facingAngle) * speed;
 		arrow.velocity.y = Math.sin(facingAngle) * speed;
+		Sound.playSound("arrow_shoot");
 	}
 }
 
@@ -96,5 +97,10 @@ class ArrowProjectile extends Projectile
 	{
 		super.revive();
 		sticksToWalls = true;
+	}
+	override public function hitWall():Void
+	{
+		Sound.playSoundRandom("arrow_hit", 2);
+		super.hitWall();
 	}
 }

@@ -64,8 +64,8 @@ class Player extends FlxSprite
 	// Knockback system
 	var isKnockedBack:Bool = false;
 	var knockbackTimer:Float = 0;
-	var knockbackDuration:Float = 0.3; // Reduced from 0.8s - much shorter push
-	var knockbackFreezeDuration:Float = 0.15; // Reduced from 0.2s - faster recovery
+	var knockbackDuration:Float = 0.15; // Shorter knockback animation
+	var knockbackFreezeDuration:Float = 0.05; // Very brief freeze
 	var knockbackTween:FlxTween = null;
 
 	public function new(X:Float, Y:Float, Projectiles:FlxTypedGroup<Projectile>)
@@ -82,13 +82,15 @@ class Player extends FlxSprite
 		weapon = new Arrow(this, projectiles);
 		
 		reticle = new FlxSprite();
-		reticle.makeGraphic(3, 3, FlxColor.WHITE);
-		reticle.offset.set(1, 1);
+		reticle.loadGraphic("assets/images/reticle.png"); // Load new reticle graphic
+		reticle.offset.set(reticle.width / 2, reticle.height / 2); // Center it
 		reticle.visible = false; // Start hidden until player is active
 		// Dizzy sprite - 8x8 spinning indicator
 		dizzySprite = new FlxSprite();
 		dizzySprite.loadGraphic("assets/images/dizzy.png");
 		dizzySprite.visible = false;
+		// Create shadow
+		shadow = new Shadow(this, "player");
 	}
 
 	public function getCritChance():Float
@@ -336,6 +338,8 @@ class Player extends FlxSprite
 		isDodging = true;
 		isInvincible = true;
 
+		Sound.playSoundRandom("player_dodge", 3);
+
 		// Use last movement direction instead of facing direction
 		var dodgeAngle = lastMovementAngle;
 		var speed = dodgeDistance / dodgeDuration;
@@ -465,6 +469,8 @@ class Player extends FlxSprite
 		if (isInvincible || isKnockedBack)
 			return;
 
+		Sound.playSoundRandom("player_hurt", 3);
+
 		currentHP = Std.int(Math.max(0, currentHP - 1));
 		isInvincible = true;
 		invincibilityTimer = invincibilityDuration;
@@ -517,7 +523,7 @@ class Player extends FlxSprite
 		}
 
 		// Push player away
-		var knockbackDistance = 20; // 16-24px range, set to 20px
+		var knockbackDistance = 6; // Reduced to 6 pixels - very subtle knockback
 		var targetX = x + dirX * knockbackDistance;
 		var targetY = y + dirY * knockbackDistance;
 
@@ -539,6 +545,24 @@ class Player extends FlxSprite
 		velocity.set(0, 0);
 		active = false; // Disable update logic (movement, shooting, etc.)
 		reticle.visible = false; // Hide reticle
+
+		// Cancel all active tweens (dodge, knockback, etc.)
+		if (knockbackTween != null)
+		{
+			knockbackTween.cancel();
+			knockbackTween = null;
+		}
+
+		for (tween in dodgeTweens)
+		{
+			if (tween != null)
+				tween.cancel();
+		}
+		dodgeTweens = [];
+
+		// Cancel any other tweens on this object
+		FlxTween.cancelTweensOf(this);
+		FlxTween.cancelTweensOf(offset);
 
 		// Switch to death frame (current frame + 8)
 		var livingFrame = animation.frameIndex;
@@ -576,13 +600,13 @@ class Player extends FlxSprite
 				case INTRO | PHASE_0_5_GHOSTS:
 					currentPhase = 0; // Dies in Phase 0/0.5 → appears in Phase 0.5 (next run)
 				case PHASE_1_ACTIVE | PHASE_1_DEATH:
-					currentPhase = 1; // Dies in Phase 1 → appears in Phase 1.5
+					currentPhase = 0; // Dies in Phase 1 → appears in Phase 0.5 (next run)
 				case PHASE_1_5_ACTIVE:
-					currentPhase = 1; // Dies in Phase 1.5 → appears in Phase 1.5 (same wave, next run)
+					currentPhase = 1; // Dies in Phase 1.5 → appears in Phase 1.5 (next run)
 				case PHASE_2_HATCH | PHASE_2_ACTIVE | PHASE_2_DEATH:
-					currentPhase = 2; // Dies in Phase 2 → appears in Phase 2.5
+					currentPhase = 1; // Dies in Phase 2 → appears in Phase 1.5 (next run)
 				case PHASE_2_5_ACTIVE:
-					currentPhase = 2; // Dies in Phase 2.5 → appears in Phase 2.5 (same wave, next run)
+					currentPhase = 2; // Dies in Phase 2.5 → appears in Phase 2.5 (next run)
 				default:
 					currentPhase = 0;
 			}
@@ -597,8 +621,6 @@ class Player extends FlxSprite
 		characterData.deathPhase = currentPhase;
 
 		GameData.addDeadCharacter(characterData);
-
-		trace("Player died in phase " + currentPhase + " with weapon " + weaponType);
 
 		// Return to character select
 		FlxG.switchState(() -> new CharacterSelectState());
@@ -622,8 +644,24 @@ class Player extends FlxSprite
 		attackDamage += 0.1 * Levels;
 		moveSpeed += 0.1 * Levels;
 		luck += 0.1 * Levels;
-		maxHP = 3 + Std.int((level - 3) / 3);
-		currentHP = maxHP;
+		// Gain 1 heart every 3 levels (starts at 3 hearts at level 1)
+		// Level 1-3: 3 hearts, Level 4-6: 4 hearts, Level 7-9: 5 hearts, etc.
+		maxHP = 3 + Std.int((level - 1) / 3);
+		currentHP = maxHP; // Heal to full on level up
+		
 		FlxG.camera.flash(FlxColor.WHITE, 0.15);
+	}
+	public function resetCooldowns():Void
+	{
+		// Reset all cooldowns and timers for phase transitions
+		dodgeTimer = 0;
+		invincibilityTimer = 0;
+		isDodging = false;
+		isDizzy = false;
+		dizzyTimer = 0;
+		isKnockedBack = false;
+		knockbackTimer = 0;
+		spinBounceActive = false;
+		spinBounceTimer = 0;
 	}
 }

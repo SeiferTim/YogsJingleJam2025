@@ -18,7 +18,7 @@ class NameBuilder
 			// Parse JSON at compile time
 			var names:Array<Dynamic> = haxe.Json.parse(content);
 
-			trace('NameBuilder macro: Loaded ${names.length} names from ${filePath} at compile time');
+			// trace('NameBuilder macro: Loaded ${names.length} names from ${filePath} at compile time');
 
 			// Convert each name entry into an expression
 			var nameEntries:Array<Expr> = [];

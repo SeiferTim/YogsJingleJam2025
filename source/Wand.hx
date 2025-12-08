@@ -4,6 +4,7 @@ import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.group.FlxGroup;
 import flixel.math.FlxAngle;
+import flixel.sound.FlxSound;
 import flixel.util.FlxColor;
 
 class Wand extends Weapon
@@ -66,6 +67,8 @@ class Wand extends Weapon
 			spark = new SparkProjectile();
 			projectiles.add(spark);
 		}
+
+		Sound.playSound("sparks");
 
 		var facingAngle = getOwnerFacingAngle();
 		// Cone spread: ±30 degrees (0.52 radians)
@@ -148,6 +151,8 @@ class MagicBallProjectile extends Projectile
 	public var isHoming:Bool = false;
 	var homingStrength:Float = 150; // Increased magnetism
 
+	var loopSound:FlxSound = null;
+
 	public var targetEnemy:FlxSprite = null;
 	
 	// Lifespan for ghost projectiles
@@ -165,10 +170,8 @@ class MagicBallProjectile extends Projectile
 		animation.play("idle"); // Set callback for when animation finishes
 		animation.onFinish.add((animName:String) ->
 		{
-			trace("MagicBall animation finished: " + animName);
 			if (animName == "pop")
 			{
-				trace("MagicBall setting exists = false");
 				exists = false;
 			}
 		});
@@ -197,6 +200,11 @@ class MagicBallProjectile extends Projectile
 		{
 			maxLifetime = 0; // Player projectiles last forever
 		}
+		Sound.playSound("fire_bubble", 1.0, false, () ->
+		{
+			loopSound = Sound.playSound("magic_ball_loop", 1.0, true);
+		});
+		
 	}
 
 	override function update(elapsed:Float):Void
@@ -341,14 +349,18 @@ class MagicBallProjectile extends Projectile
 	{
 		if (!alive)
 		{
-			trace("MagicBall.pop() called but already dead");
 			return;
 		}
-		trace("MagicBall.pop() - Starting pop animation");
 		alive = false;
 		exists = true;
 		velocity.set(0, 0);
 		animation.play("pop", true);
+		if (loopSound != null)
+		{
+			loopSound.stop();
+			loopSound = null;
+		}
+		Sound.playSound("bubble_pop");
 	}
 	override public function kill():Void
 	{

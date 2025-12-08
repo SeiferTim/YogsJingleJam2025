@@ -57,8 +57,6 @@ class NameData
 				yogNames.push(name);
 			}
 		}
-
-		trace('NameData initialized: ${maleNames.length} male, ${femaleNames.length} female, ${neutralNames.length} neutral, ${yogNames.length} yogs');
 	}
 
 	/**
@@ -117,7 +115,7 @@ class NameData
 
 		if (pool.length == 0)
 		{
-			trace('NameData warning: No names found for gender "${gender}"');
+			// Fallback to unknown if no names found
 			return {first_name: "Unknown", gender: "?", yog: false};
 		}
 

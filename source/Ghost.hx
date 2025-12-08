@@ -42,6 +42,7 @@ class Ghost extends GameEntity
 	var optimalDistance:Float = 64;
 	var attackTimer:Float = 0;
 	var attackCooldown:Float = 3.0;
+	var spawnProtectionTimer:Float = 0; // Grace period before ghost can attack
 
 	public var facingAngle:Float = 0;
 
@@ -57,6 +58,7 @@ class Ghost extends GameEntity
 		alpha = 0;
 		color = 0xBBBBDD; // Ghostly tint
 		kill();
+		Sound.playSound("ghost_defeat");
 	}
 
 	public function spawn(Data:CharacterData, Player:Player, Projectiles:FlxTypedGroup<Projectile>, ?eggX:Float, ?eggY:Float):Void
@@ -64,6 +66,8 @@ class Ghost extends GameEntity
 		characterData = Data;
 		player = Player;
 		projectiles = Projectiles;
+
+		Sound.playSound("ghost_spawn");
 
 		// Convert hearts to HP: 10 HP per heart (maxHP is number of hearts)
 		currentHealth = Data.maxHP * 10;
@@ -111,43 +115,17 @@ class Ghost extends GameEntity
 
 		reset(spawnX, spawnY);
 
-		setupShadow(1.2, 0.25, 0, height / 2);
+		setupShadow("player"); // Ghosts use player shadow graphic
 
-		// Flashy spawn effect: start invisible, white, and small
-		alpha = 0;
-		color = FlxColor.WHITE;
-		scale.set(0.5, 0.5);
+		// Ghost spawns behind the white ghost with semi-transparent appearance
+		alpha = 0.9;
 
-		// Use static counter for stagger (0.5s per ghost spawned before this one)
+		// Use static counter for stagger (used by white ghost animation in PlayState)
 		var staggerDelay = spawnCounter * 0.5;
 		spawnCounter++; // Increment for next ghost
 
-		// Pop in: fade to full + scale up + white flash (1 second with stagger)
-		FlxTween.tween(this, {alpha: 1.0}, 1.0, {
-			startDelay: staggerDelay,
-			ease: FlxEase.backOut
-		});
-
-		FlxTween.tween(this.scale, {x: 1.2, y: 1.2}, 1.0, {
-			startDelay: staggerDelay,
-			ease: FlxEase.backOut,
-			onComplete: function(_)
-			{
-				// Settle: fade to semi-transparent + scale to normal + color to gray (quick)
-				FlxTween.tween(this, {alpha: 0.85}, 0.2, {
-					startDelay: 0.1
-				});
-				FlxTween.tween(this.scale, {x: 1.0, y: 1.0}, 0.2, {
-					startDelay: 0.1
-				});
-			}
-		});
-
-		// Color flash: white -> gray over the pop-in duration
-		FlxTween.color(this, 1.0, FlxColor.WHITE, FlxColor.GRAY, {
-			startDelay: staggerDelay,
-			ease: FlxEase.quadOut
-		});
+		// Set spawn protection: 2 seconds after white ghost animation completes
+		spawnProtectionTimer = staggerDelay + 1.0 + 2.0;
 	}
 
 	override function update(elapsed:Float):Void
@@ -159,6 +137,10 @@ class Ghost extends GameEntity
 
 		if (weapon != null)
 			weapon.update(elapsed);
+
+		// Count down spawn protection timer
+		if (spawnProtectionTimer > 0)
+			spawnProtectionTimer -= elapsed;
 
 		updateAI(elapsed);
 
@@ -196,8 +178,8 @@ class Ghost extends GameEntity
 		x = Math.max(FlxG.worldBounds.left + 8, Math.min(FlxG.worldBounds.right - width - 8, x));
 		y = Math.max(FlxG.worldBounds.top + 8, Math.min(FlxG.worldBounds.bottom - height - 8, y));
 
-		// Attack using weapon
-		if (attackTimer <= 0 && dist < 128)
+		// Attack using weapon (only if spawn protection has expired)
+		if (spawnProtectionTimer <= 0 && attackTimer <= 0 && dist < 128)
 		{
 			useWeapon();
 			attackTimer = attackCooldown;
@@ -229,6 +211,10 @@ class Ghost extends GameEntity
 
 	override public function takeDamage(damage:Float, ?damageInstanceId:String):Void
 	{
+		// Don't take damage if already dead
+		if (!alive)
+			return;
+			
 		// Check cooldown using DamageTracker from base class
 		if (!damageTracker.canTakeDamageFrom(damageInstanceId))
 		{
@@ -256,6 +242,7 @@ class Ghost extends GameEntity
 		// Stop movement immediately
 		velocity.set(0, 0);
 		active = false;
+		alive = false; // Prevent further damage or orb spawns
 	
 		// Trigger death callback FIRST (spawns soul orb)
 		if (onDeath != null)
@@ -286,7 +273,6 @@ class Ghost extends GameEntity
 		else
 		{
 			// No death frame available, kill immediately
-			trace("Death frame not found for ghost, using fallback");
 			actuallyKill();
 		}
 	}

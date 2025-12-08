@@ -4,7 +4,7 @@
 
 	<!-- _________________________ Application Settings _________________________ -->
 
-	<app title="game-jam-template" file="game-jam-template" main="Main" version="0.0.1" company="HaxeFlixel" />
+	<app title="Echoes of the Infinite Recursor" file="eotir" main="Main" version="0.0.1" company="Axol Studio, LLC" />
 
 	<!--The flixel preloader is not accurate in Chrome. You can use it regularly if you embed the swf into a html file
 		or you can set the actual size of your file manually at "FlxPreloaderBase-onUpdate-bytesTotal"-->
@@ -31,14 +31,20 @@
 
 	<set name="BUILD_DIR" value="export" />
 	<source path="source" />
-	<assets path="assets" />
+	<assets path="assets/data" include="*.json" />
+	<assets path="assets/images" include="*.png" type="image" />
+	<assets path="assets/images" include="*.xml"  />
+	<assets path="assets/maps" include="*.csv" />
+	<assets path="assets/music" include="*.ogg" type="music" />
+	<assets path="assets/sounds" include="*.ogg" type="sound" />
+
 
 	<!-- _______________________________ Libraries ______________________________ -->
-
+	<include path="axollib/include.xml" />
 	<haxelib name="flixel" />
 
 	<!--In case you want to use the addons package-->
-	<!--<haxelib name="flixel-addons" />-->
+	<haxelib name="flixel-addons" />
 
 	<!--In case you want to use the ui package-->
 	<!--<haxelib name="flixel-ui" />-->

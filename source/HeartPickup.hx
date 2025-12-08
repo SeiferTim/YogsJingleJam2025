@@ -21,7 +21,7 @@ class HeartPickup extends GameEntity
 	public function spawn(Pos:FlxPoint):Void
 	{
 		reset(Pos.x - 4, Pos.y - 4);
-		setupShadow(0.8, 0.5, 0, height / 2);
+		setupShadow("player"); // Hearts use player shadow
 		
 		alpha = 0;
 		offset.y = 4;
@@ -38,6 +38,8 @@ class HeartPickup extends GameEntity
 		if (player.currentHP < player.maxHP)
 		{
 			player.currentHP = Std.int(Math.min(player.currentHP + healAmount, player.maxHP));
+			Sound.playSound("player_heal");
+			
 		}
 
 		kill();

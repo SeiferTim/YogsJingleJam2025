@@ -267,24 +267,39 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	public function createShadows(shadowLayer:ShadowLayer):Void
 	{
 		// Create shadows for each segment
-		// Width: 1.2x, Height: 1.0x, Anchor: center.x, center.y + 4
-
-		var lastShadow = new Shadow(lastSegment.sprite, 1.05, 1.0, 0, 4);
+		// Segments wiggle using offset.y, so shadows need to stay at ground level
+		var lastShadow = new Shadow(lastSegment.sprite, "bossSegment", 0, 4);
+		lastShadow.groundY = lastSegment.sprite.y + lastSegment.sprite.height / 2;
 		shadowLayer.add(lastShadow);
 		shadows.push(lastShadow);
 
-		var backShadow = new Shadow(backSegment.sprite, 1.1, 1.0, 0, 4);
+		var backShadow = new Shadow(backSegment.sprite, "bossSegment", 0, 4);
+		backShadow.groundY = backSegment.sprite.y + backSegment.sprite.height / 2;
 		shadowLayer.add(backShadow);
 		shadows.push(backShadow);
 
-		var foreShadow = new Shadow(foreSegment.sprite, 1.1, 1.0, 0, 4);
+		var foreShadow = new Shadow(foreSegment.sprite, "bossSegment", 0, 4);
+		foreShadow.groundY = foreSegment.sprite.y + foreSegment.sprite.height / 2;
 		shadowLayer.add(foreShadow);
 		shadows.push(foreShadow);
 
-		var headShadow = new Shadow(headSegment.sprite, 0.8, 0.8, 0, 4);
+		var headShadow = new Shadow(headSegment.sprite, "bossSegment", 0, 4);
+		headShadow.groundY = headSegment.sprite.y + headSegment.sprite.height / 2;
 		shadowLayer.add(headShadow);
 		shadows.push(headShadow);
 		// No shadows for mouth or pincers
+	}
+
+	function updateShadowGroundPositions():Void
+	{
+		// Keep shadows at ground level (ignore wiggle offset.y)
+		if (shadows.length >= 4)
+		{
+			shadows[0].groundY = lastSegment.sprite.y + lastSegment.sprite.height / 2;
+			shadows[1].groundY = backSegment.sprite.y + backSegment.sprite.height / 2;
+			shadows[2].groundY = foreSegment.sprite.y + foreSegment.sprite.height / 2;
+			shadows[3].groundY = headSegment.sprite.y + headSegment.sprite.height / 2;
+		}
 	}
 
 	public function setReady():Void
@@ -300,6 +315,7 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		setMouthOpen(true);
 		setPincersOpen(true);
 		hasRoared = true;
+		Sound.playSound("boss_roar");
 	}
 
 	public function closeRoar():Void
@@ -311,6 +327,11 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 	override function update(elapsed:Float):Void
 	{
 		super.update(elapsed);
+
+		// Always update segments and shadows (even during cinematics)
+		updateSegments();
+		updateShadowGroundPositions();
+		updateMouthAndPincers();
 
 		if (!isReady)
 		{
@@ -337,18 +358,12 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		{
 			case IDLE:
 				updateIdle(elapsed);
-				updateSegments();
-				updateMouthAndPincers();
 			case SLAM_ATTACK:
 				updateSlamAttack(elapsed);
 			case SPIT_ATTACK:
 				updateSpitAttack(elapsed);
-				updateSegments();
-				updateMouthAndPincers();
 			case PLASMA_ATTACK:
 				updatePlasmaAttack(elapsed);
-				updateSegments();
-				updateMouthAndPincers();
 		}
 	}
 
@@ -611,6 +626,9 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 		if (spitProjectiles == null)
 			return;
 
+		Sound.playSound("slam_impact");
+
+
 		var numProjectiles = 80;
 		var shockwaveSpeed = 120;
 		var center = headSegment.getCenter();
@@ -788,20 +806,10 @@ class BossPhase01Larva extends FlxTypedGroup<FlxSprite> implements IBoss
 			if (hasOverlap)
 				return; // Already found a hit
 
-			// First check: AABB or rotated collision
-			var basicOverlap = false;
-			if (useRotatedCollision && Std.isOfType(sprite, RotatedSprite))
-			{
-				// Use RotatedSprite's overlaps method for rotated collision
-				basicOverlap = cast(sprite, RotatedSprite).overlaps(segment);
-			}
-			else
-			{
-				// Standard AABB check
-				basicOverlap = sprite.overlaps(segment);
-			}
+			// First check: Basic AABB overlap
+			var basicOverlap = sprite.overlaps(segment);
 
-			// Second check: pixel-perfect if requested
+			// Second check: pixel-perfect if requested (handles rotation properly)
 			if (basicOverlap)
 			{
 				if (usePixelPerfect)

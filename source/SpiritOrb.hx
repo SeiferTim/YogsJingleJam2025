@@ -11,7 +11,7 @@ import flixel.util.FlxDirectionFlags;
  * Spirit orbs are dropped when ghosts are defeated.
  * They float toward the player and level up their stats when collected.
  */
-class SpiritOrb extends FlxSprite
+class SpiritOrb extends GameEntity
 {
 	public var isActive:Bool = false;
 	public var onCollect:Void->Void; // Callback when orb is collected
@@ -54,6 +54,8 @@ class SpiritOrb extends FlxSprite
 	{
 		reset(x = X - width / 2, y = Y - height / 2);
 
+		setupShadow("player"); // Spirit orbs use player shadow
+
 		velocity.set();
 		isActive = true;
 		exists = true;
@@ -69,10 +71,9 @@ class SpiritOrb extends FlxSprite
 
 	override public function kill()
 	{
-		super.kill();
+		super.kill(); // GameEntity handles shadow cleanup
 		velocity.set();
 		targetPlayer = null;
-
 	}
 
 	override public function update(elapsed:Float):Void

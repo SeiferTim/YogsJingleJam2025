@@ -6,6 +6,7 @@ import flixel.FlxSubState;
 import flixel.graphics.frames.FlxBitmapFont;
 import flixel.text.FlxBitmapText;
 import flixel.tweens.FlxTween;
+import flixel.ui.FlxButton;
 import flixel.util.FlxColor;
 
 using flixel.util.FlxSpriteUtil;
@@ -16,6 +17,7 @@ class DeathScreenSubState extends FlxSubState
 	var deathPhase:Int;
 	var panel:FlxSprite;
 	var ready:Bool = true;
+	var nav:NavigableMenu;
 
 	public function new(CharacterName:String, DeathPhase:Int)
 	{
@@ -27,6 +29,10 @@ class DeathScreenSubState extends FlxSubState
 	override function create():Void
 	{
 		super.create();
+
+		// Set cursor to FINGER for menus
+		if (GameGlobals.mouseHandler != null)
+			GameGlobals.mouseHandler.cursor = FINGER;
 
 		// Transparent background (no fade needed)
 		bgColor = FlxColor.TRANSPARENT;
@@ -104,7 +110,7 @@ class DeathScreenSubState extends FlxSubState
 		var startX = Math.floor((FlxG.width - totalButtonWidth) / 2);
 
 		// "New Challenger" button
-		var newChallengerBtn = new GameButton(startX, buttonY, buttonWidth, buttonHeight, "NEXT", function()
+		var newChallengerBtn = new GameButton(startX, buttonY, "NEXT", function()
 		{
 			if (!ready)
 				return;
@@ -118,19 +124,25 @@ class DeathScreenSubState extends FlxSubState
 		add(newChallengerBtn);
 
 		// "Exit" button
-		var exitBtn = new GameButton(startX + buttonWidth + buttonSpacing, buttonY, buttonWidth, buttonHeight, "EXIT", function()
+		var exitBtn = new GameButton(startX + 62 + buttonSpacing, buttonY, "EXIT", function()
 		{
 			if (!ready)
 				return;
 			ready = false;
+			// Set cursor to FINGER for title screen
+			if (GameGlobals.mouseHandler != null)
+				GameGlobals.mouseHandler.cursor = FINGER;
+				
 			FlxG.camera.fade(FlxColor.BLACK, 0.5, false, function()
 			{
-				// TODO: Go to main menu
-				close();
+				FlxG.switchState(TitleState.new);
 			});
 		});
 		exitBtn.scrollFactor.set(0, 0);
 		add(exitBtn);
+		// Create navigation
+		nav = new NavigableMenu([cast newChallengerBtn, cast exitBtn], GameGlobals.mouseHandler);
+		nav.enabled = false;
 
 		// Start everything invisible and fade in slowly
 		for (basic in members)
@@ -151,6 +163,9 @@ class DeathScreenSubState extends FlxSubState
 					cast(basic, FlxSprite).alpha = value;
 				}
 			}
+			// Enable navigation when fade is complete
+			if (value >= 1.0)
+				nav.enabled = true;
 		});
 	}
 
@@ -160,6 +175,10 @@ class DeathScreenSubState extends FlxSubState
 
 		if (!ready)
 			return;
+
+		// Update navigation
+		if (nav != null)
+			nav.update(elapsed);
 
 		// Allow keyboard shortcuts
 		if (FlxG.keys.justPressed.ENTER || FlxG.keys.justPressed.SPACE)
@@ -173,11 +192,15 @@ class DeathScreenSubState extends FlxSubState
 		}
 		else if (FlxG.keys.justPressed.ESCAPE)
 		{
-			// Exit
+			// Exit to title screen
 			ready = false;
+			// Set cursor to FINGER for title screen
+			if (GameGlobals.mouseHandler != null)
+				GameGlobals.mouseHandler.cursor = FINGER;
+				
 			FlxG.camera.fade(FlxColor.BLACK, 0.5, false, function()
 			{
-				close();
+				FlxG.switchState(TitleState.new);
 			});
 		}
 	}

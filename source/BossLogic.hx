@@ -63,6 +63,7 @@ class BossLogic
 		if (!canTakeDamage(damageInstanceId))
 			return false;
 
+		Sound.playSound("monster_hit");
 		currentHealth -= damage;
 		if (currentHealth < 0)
 			currentHealth = 0;

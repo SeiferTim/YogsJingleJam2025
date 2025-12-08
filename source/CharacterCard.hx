@@ -18,7 +18,7 @@ class CharacterCard extends FlxSpriteGroup
 	var nameText:FlxBitmapText;
 	var classText:FlxBitmapText;
 	var weaponIcon:FlxSprite;
-	var selectButton:FlxTypedButton<FlxBitmapText>;
+	public var selectButton:FlxTypedButton<FlxBitmapText>; // Public for navigation
 	var font:FlxBitmapFont;
 
 	var cardWidth:Int = 70;

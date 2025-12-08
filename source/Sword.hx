@@ -11,7 +11,7 @@ import flixel.util.FlxColor;
 
 class Sword extends Weapon
 {
-	var slashHitbox:RotatedSprite; // Use RotatedSprite for proper collision detection
+	var slashHitbox:FlxSprite; // Regular sprite with loadRotatedGraphic for collision
 	var spinHitbox:FlxSprite; // Separate hitbox for spin attack
 	var isSpinning:Bool = false;
 	var spinDuration:Float = 0;
@@ -26,6 +26,10 @@ class Sword extends Weapon
 	var spinCurrentSpeed:Float = 0;
 	var spinDecelerationRate:Float = 100; // Pixels per second^2
 
+	// Worldbounds bounce cooldown
+	var lastBounceTime:Float = 0;
+	var bounceCooldown:Float = 0.2; // Minimum time between wall bounces
+
 	public function new(Owner:FlxSprite, Projectiles:FlxTypedGroup<Projectile>)
 	{
 		super(Owner, Projectiles);
@@ -35,16 +39,13 @@ class Sword extends Weapon
 		ownerMP = Owner.getMidpoint();
 		
 
-		// Create slash hitbox
-		slashHitbox = new RotatedSprite(); // Use RotatedSprite for rotation collision
-		slashHitbox.loadGraphic("assets/images/sword-slash.png");
-		// New graphic is now HALF the previous size (24x30px), drawn for 0 degrees (right).
-		// IMPORTANT: do NOT scale or call updateHitbox here — updateHitbox can recenter the origin/pivot
-		// and clobber the pivot we rely on for rotation. Keep the sprite at native size and set the
-		// origin/pivot explicitly for correct rotation.
-		// Origin adjusted for the half-size image: (-0.25, 15.25)
-		slashHitbox.origin.set(-0.5, 15.5);
-		// Do not call updateHitbox() here — it may change the origin/pivot
+		// Create slash hitbox with rotated graphics for proper collision at all angles
+		// New 54x54px sprite with 24x30 slash drawn on one side - rotates around center
+		slashHitbox = new FlxSprite();
+		slashHitbox.loadRotatedGraphic("assets/images/sword-slash.png", 36, -1, false, false); // 36 angles for smoother rotation
+		slashHitbox.antialiasing = false;
+		// Origin at center - sprite will rotate around player's center
+		slashHitbox.origin.set(slashHitbox.width / 2, slashHitbox.height / 2);
 		slashHitbox.exists = false;
 
 		// Create spin attack hitbox
@@ -85,9 +86,15 @@ class Sword extends Weapon
 			{
 				var player = cast(owner, Player);
 
-				if (spinDecelerating)
+				if (player.spinBounceActive)
 				{
-					// Decelerate to stop
+					// During bounce (0.3s after hitting wall), lock to bounce direction
+					// Player can't change direction - just maintain bounce velocity
+					// spinBounceActive will auto-expire after spinBounceDuration
+				}
+				else if (spinDecelerating)
+				{
+					// Decelerate to stop, but allow player to change direction
 					spinCurrentSpeed -= spinDecelerationRate * elapsed;
 					if (spinCurrentSpeed <= 0)
 					{
@@ -97,31 +104,54 @@ class Sword extends Weapon
 						return;
 					}
 
-					// Maintain velocity direction while decelerating
-					var currentSpeed = Math.sqrt(player.velocity.x * player.velocity.x + player.velocity.y * player.velocity.y);
-					if (currentSpeed > 1)
+					// Get player input for direction
+					var moveX = Actions.leftStick.x != 0 ? Actions.leftStick.x : (Actions.right.triggered ? 1 : (Actions.left.triggered ? -1 : 0));
+					var moveY = Actions.leftStick.y != 0 ? Actions.leftStick.y : (Actions.down.triggered ? 1 : (Actions.up.triggered ? -1 : 0));
+
+					var moveAngle:Float;
+					if (moveX != 0 || moveY != 0)
 					{
-						player.velocity.x = (player.velocity.x / currentSpeed) * spinCurrentSpeed;
-						player.velocity.y = (player.velocity.y / currentSpeed) * spinCurrentSpeed;
+						// Player is giving input - use that direction
+						moveAngle = Math.atan2(moveY, moveX);
+						player.lastMovementAngle = moveAngle; // Update for future use
 					}
-				}
-				else if (player.spinBounceActive)
-				{
-					// During bounce, maintain bounce velocity (already set by applySpinBounce)
-					// Don't modify - let it play out
+					else
+					{
+						// No input - maintain current velocity direction
+						var currentSpeed = Math.sqrt(player.velocity.x * player.velocity.x + player.velocity.y * player.velocity.y);
+						if (currentSpeed > 1)
+						{
+							moveAngle = Math.atan2(player.velocity.y, player.velocity.x);
+						}
+						else
+						{
+							moveAngle = player.lastMovementAngle;
+						}
+					}
+					// Apply decelerating speed in the chosen direction
+					player.velocity.set(Math.cos(moveAngle) * spinCurrentSpeed, Math.sin(moveAngle) * spinCurrentSpeed);
 				}
 				else
 				{
-					// Normal spin: FORCE minimum velocity at all times
-					var minSpeed = 40 * player.moveSpeed; // baseSpeed * current moveSpeed (already boosted by 1.1)
-					var currentSpeed = Math.sqrt(player.velocity.x * player.velocity.x + player.velocity.y * player.velocity.y);
+					// Normal spin: Allow player to change direction, but lock speed
+					var lockedSpeed = 40 * player.moveSpeed * 1.1; // baseSpeed * moveSpeed * spin boost
 
-					// ALWAYS enforce minimum speed during spin
-					if (currentSpeed < minSpeed - 0.1) // Small epsilon for floating point
+					// Get player input
+					var moveX = Actions.leftStick.x != 0 ? Actions.leftStick.x : (Actions.right.triggered ? 1 : (Actions.left.triggered ? -1 : 0));
+					var moveY = Actions.leftStick.y != 0 ? Actions.leftStick.y : (Actions.down.triggered ? 1 : (Actions.up.triggered ? -1 : 0));
+
+					if (moveX != 0 || moveY != 0)
 					{
-						// Use last movement angle as direction
+						// Player is giving input - use that direction but lock speed
+						var inputAngle = Math.atan2(moveY, moveX);
+						player.lastMovementAngle = inputAngle; // Update for next bounce/dodge
+						player.velocity.set(Math.cos(inputAngle) * lockedSpeed, Math.sin(inputAngle) * lockedSpeed);
+					}
+					else
+					{
+						// No input - use last movement angle at locked speed
 						var moveAngle = player.lastMovementAngle;
-						player.velocity.set(Math.cos(moveAngle) * minSpeed, Math.sin(moveAngle) * minSpeed);
+						player.velocity.set(Math.cos(moveAngle) * lockedSpeed, Math.sin(moveAngle) * lockedSpeed);
 					}
 				}
 			}
@@ -130,11 +160,69 @@ class Sword extends Weapon
 			spinHitbox.x = ownerMP.x - spinHitbox.width / 2;
 			spinHitbox.y = ownerMP.y - spinHitbox.height / 2;
 
+			// Check worldbounds collision and bounce (with cooldown to prevent getting stuck)
+			// Use spinHitbox position instead of player position for blade collision
+			if (Std.isOfType(owner, Player))
+			{
+				var player = cast(owner, Player);
+				var currentTime = spinTimer;
+
+				// Only check for bounces if enough time has passed since last bounce
+				if (currentTime - lastBounceTime >= bounceCooldown)
+				{
+					var bounced = false;
+
+					// Check left/right bounds using spin hitbox edges
+					if (spinHitbox.x <= FlxG.worldBounds.x)
+					{
+						// Hit left wall - reflect X velocity
+						player.applySpinBounce(-player.velocity.x, player.velocity.y);
+						lastBounceTime = currentTime;
+						bounced = true;
+					}
+					else if (spinHitbox.x + spinHitbox.width >= FlxG.worldBounds.right)
+					{
+						// Hit right wall - reflect X velocity
+						player.applySpinBounce(-player.velocity.x, player.velocity.y);
+						lastBounceTime = currentTime;
+						bounced = true;
+					}
+
+					// Check top/bottom bounds (only if didn't already bounce on X)
+					if (!bounced)
+					{
+						if (spinHitbox.y <= FlxG.worldBounds.y)
+						{
+							// Hit top wall - reflect Y velocity
+							player.applySpinBounce(player.velocity.x, -player.velocity.y);
+							lastBounceTime = currentTime;
+						}
+						else if (spinHitbox.y + spinHitbox.height >= FlxG.worldBounds.bottom)
+						{
+							// Hit bottom wall - reflect Y velocity
+							player.applySpinBounce(player.velocity.x, -player.velocity.y);
+							lastBounceTime = currentTime;
+						}
+					}
+				}
+			}
+
 			// End spin when duration expires (start deceleration)
 			if (spinTimer >= spinDuration && !spinDecelerating)
 			{
 				startSpinDeceleration();
 			}
+		}
+
+		// Update slash hitbox position to follow owner while active
+		if (slashHitbox.exists && slashHitbox.alpha > 0)
+		{
+			var facingAngle = getOwnerFacingAngle();
+			// Position at owner midpoint
+			slashHitbox.x = ownerMP.x - slashHitbox.origin.x;
+			slashHitbox.y = ownerMP.y - slashHitbox.origin.y;
+			// Set angle - RotatedSprite handles the rotation properly with loadRotatedGraphic
+			slashHitbox.angle = facingAngle * (180 / Math.PI);
 		}
 
 		// Update hitbox visibility
@@ -174,10 +262,12 @@ class Sword extends Weapon
 		hasHitThisSwing = false; // Reset damage tracking for new swing
 
 		var facingAngle = getOwnerFacingAngle();
-		slashHitbox.x = ownerMP.x;
-		slashHitbox.y = ownerMP.y - slashHitbox.height / 2;
-
+		// Position at owner midpoint, accounting for origin
+		slashHitbox.x = ownerMP.x - slashHitbox.origin.x;
+		slashHitbox.y = ownerMP.y - slashHitbox.origin.y;
 		slashHitbox.angle = facingAngle * (180 / Math.PI);
+
+		Sound.playSoundRandom("sword_sweep", 2);
 
 		FlxTween.tween(slashHitbox, {alpha: 0}, 0.2);
 	}
@@ -191,6 +281,7 @@ class Sword extends Weapon
 		spinTimer = 0;
 		spinFlipCounter = 0; // Reset flip counter
 		spinDecelerating = false; // Not decelerating yet
+		lastBounceTime = 0; // Reset bounce cooldown for new spin
 
 		// Duration scales with charge: 0.3s at minimum to 1.5s at full charge
 		var chargePercent = getChargePercent();
@@ -230,6 +321,7 @@ class Sword extends Weapon
 		// Center on owner
 		spinHitbox.x = owner.x + owner.width / 2 - spinHitbox.width / 2;
 		spinHitbox.y = owner.y + owner.height / 2 - spinHitbox.height / 2;
+		Sound.playSound("sword_spin");
 	}
 
 	function startSpinDeceleration():Void
@@ -288,5 +380,55 @@ class Sword extends Weapon
 	public function markHit():Void
 	{
 		hasHitThisSwing = true;
+	}
+	/**
+	 * Check if a target sprite is hit by the sword slash using angle-based collision.
+	 * Works correctly with rotated sprites unlike pixelPerfectOverlap.
+	 * @param target The sprite to check collision against
+	 * @return True if the target is within the slash arc
+	 */
+	public function checkSlashHit(target:FlxSprite):Bool
+	{
+		if (!slashHitbox.exists || slashHitbox.alpha <= 0)
+			return false;
+
+		// First check: basic bounding box overlap
+		if (!slashHitbox.overlaps(target))
+			return false;
+
+		// Get target center point
+		var targetMP = target.getMidpoint();
+
+		// Calculate distance from player center to target center
+		var dx = targetMP.x - ownerMP.x;
+		var dy = targetMP.y - ownerMP.y;
+		var distance = Math.sqrt(dx * dx + dy * dy);
+
+		// Slash reaches about 30px from center (based on 24x30 graphic in 54x54 sprite)
+		// Add target's radius for more generous collision
+		var maxDistance = 30 + Math.max(target.width, target.height) / 2;
+
+		if (distance > maxDistance)
+			return false;
+
+		// Calculate angle from player to target
+		var targetAngle = Math.atan2(dy, dx);
+
+		// Get current slash angle (convert from degrees to radians)
+		var slashAngle = slashHitbox.angle * (Math.PI / 180);
+
+		// Normalize angles to -PI to PI range
+		while (targetAngle - slashAngle > Math.PI)
+			targetAngle -= Math.PI * 2;
+		while (targetAngle - slashAngle < -Math.PI)
+			targetAngle += Math.PI * 2;
+
+		// Check if target is within slash arc (±45 degrees = ±PI/4 radians)
+		var angleDiff = Math.abs(targetAngle - slashAngle);
+		var arcWidth = Math.PI / 4; // 45 degrees on each side
+
+		targetMP.put();
+
+		return angleDiff <= arcWidth;
 	}
 }

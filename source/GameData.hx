@@ -24,9 +24,6 @@ class GameData
 		// In debug mode, start with a clean slate every time
 		_save.data.deadCharacters = [];
 		_save.flush();
-		trace("GameData initialized with FlxSave (DEBUG MODE - save cleared)");
-		#else
-		trace("GameData initialized with FlxSave");
 		#end
 
 		_initialized = true;
@@ -46,8 +43,6 @@ class GameData
 
 		_save.data.deadCharacters = deadList;
 		_save.flush();
-
-		trace("Added dead character: " + character.name + " (Total ghosts: " + deadList.length + ")");
 	}
 
 	// Get all dead characters for ghost spawning
@@ -75,8 +70,6 @@ class GameData
 
 		_save.data.deadCharacters = [];
 		_save.flush();
-
-		trace("GameData reset - cleared all ghosts from save");
 	}
 
 	// Get count of ghosts without loading them all
